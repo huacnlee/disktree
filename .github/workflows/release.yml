@@ -1,0 +1,95 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build (without v)
+        required: true
+        default: '0.1.0'
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.build/cargo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: longbridge/native-shell
+          ref: 6d62ee0efdc1466337ce5a6a1a02e5aa456dc71c
+          path: .runtime-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libglib2.0-bin xvfb
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .build/cargo
+          key: release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'patches/nsh-hover.patch') }}
+      - name: Install packaging tools
+        run: python -m pip install pyinstaller==6.16.0
+      - name: Scanner regression tests
+        run: python -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Build native package
+        env:
+          TAG: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="${INPUT_VERSION:-${TAG#v}}"
+          python scripts/build-release.py --version "$version"
+      - name: Smoke test packaged window (Linux)
+        if: runner.os == 'Linux'
+        env:
+          DISKTREE_ROOT: ${{ github.workspace }}/tests
+          DISKTREE_STATE: ${{ runner.temp }}/disktree-state.json
+          DISKTREE_UI_SCRIPT: 'wait 3000; quit'
+        run: xvfb-run -a python scripts/smoke-package.py
+      - name: Smoke test packaged window (macOS)
+        if: runner.os == 'macOS'
+        env:
+          DISKTREE_ROOT: ${{ github.workspace }}/tests
+          DISKTREE_STATE: ${{ runner.temp }}/disktree-state.json
+          DISKTREE_UI_SCRIPT: 'wait 3000; quit'
+        run: python scripts/smoke-package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: disktree-${{ runner.os }}-${{ runner.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > SHA256SUMS
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/* --verify-tag --generate-notes --title "Disktree $TAG"

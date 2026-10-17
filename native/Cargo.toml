@@ -1,0 +1,15 @@
+[package]
+name = "disktree"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+serde_json = "1"
+log = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nsh-platform-macos = { path = "../.runtime-source/crates/nsh-platform-macos" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nsh-platform-linux = { path = "../.runtime-source/crates/nsh-platform-linux" }

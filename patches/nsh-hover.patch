@@ -1,0 +1,70 @@
+diff --git a/crates/nsh-core/src/js/host.rs b/crates/nsh-core/src/js/host.rs
+index 28f8434..a30fdda 100644
+--- a/crates/nsh-core/src/js/host.rs
++++ b/crates/nsh-core/src/js/host.rs
+@@ -373,6 +373,8 @@ export interface WebViewNavigation {
+ /// its documentation. An event whose payload differs between elements has
+ /// a row per payload.
+ pub const EVENTS: &[(EventKind, u32, &str, &str)] = &[
++    (EventKind::HoverIn, on::ALL, "() => void", ""),
++    (EventKind::HoverOut, on::ALL, "() => void", ""),
+     (EventKind::Press, on::ALL, "() => void", ""),
+     (EventKind::LongPress, on::ALL, "() => void", ""),
+     (EventKind::PressIn, on::ALL, "() => void", ""),
+diff --git a/crates/nsh-core/src/ops.rs b/crates/nsh-core/src/ops.rs
+index 55afbfd..98f5781 100644
+--- a/crates/nsh-core/src/ops.rs
++++ b/crates/nsh-core/src/ops.rs
+@@ -172,6 +172,8 @@ events! {
+     Clipboard = "onClipboard": "A clipboard read finished (root only; payload: `id`, `has`: whether it holds text, `text`: the text, unless only `has` was asked).",
+     KeyCommand = "onKeyCommand": "A key matched a binding of `nsh/keymap` (root only; payload: the binding's id, [`crate::keymap::KeyBinding::id`]).",
+     Menu = "onMenu": "A menu item was chosen: the application menu's or a context menu's (root only; desktops; payload: `id`), or a context menu closed (`closed`: true, after its item).",
++    HoverIn = "onHoverIn": "The pointer entered the view.",
++    HoverOut = "onHoverOut": "The pointer left the view.",
+ }
+ 
+ /// What an input holds, for the system's autofill and suggestions
+diff --git a/crates/nsh-platform-linux/src/input.rs b/crates/nsh-platform-linux/src/input.rs
+index 20b2b01..caccb8d 100644
+--- a/crates/nsh-platform-linux/src/input.rs
++++ b/crates/nsh-platform-linux/src/input.rs
+@@ -1843,9 +1843,17 @@ fn set_hovered(surface: &Surface, views: Vec<NshView>) {
+     let old = std::mem::replace(&mut *surface.input.hovered.borrow_mut(), views.clone());
+     for v in old.iter().filter(|v| !views.contains(v)) {
+         set_state(surface, v, HOVERED, false);
++        let state = v.state();
++        if state.events.contains(EventKind::HoverOut) {
++            surface.event(state.id, EventKind::HoverOut, EventPayload::None);
++        }
+     }
+     for v in views.iter().filter(|v| !old.contains(v)) {
+         set_state(surface, v, HOVERED, true);
++        let state = v.state();
++        if state.events.contains(EventKind::HoverIn) {
++            surface.event(state.id, EventKind::HoverIn, EventPayload::None);
++        }
+     }
+ }
+ 
+diff --git a/crates/nsh-platform-macos/src/input.rs b/crates/nsh-platform-macos/src/input.rs
+index 7188fcc..4c3915a 100644
+--- a/crates/nsh-platform-macos/src/input.rs
++++ b/crates/nsh-platform-macos/src/input.rs
+@@ -1797,9 +1797,17 @@ fn set_hovered(surface: &Surface, views: Vec<NshView>) {
+     let old = std::mem::replace(&mut *surface.input.hovered.borrow_mut(), views.clone());
+     for v in old.iter().filter(|v| !views.contains(v)) {
+         set_state(surface, v, HOVERED, false);
++        let state = v.state();
++        if state.events.contains(EventKind::HoverOut) {
++            surface.event(state.id, EventKind::HoverOut, EventPayload::None);
++        }
+     }
+     for v in views.iter().filter(|v| !old.contains(v)) {
+         set_state(surface, v, HOVERED, true);
++        let state = v.state();
++        if state.events.contains(EventKind::HoverIn) {
++            surface.event(state.id, EventKind::HoverIn, EventPayload::None);
++        }
+     }
+ }
+ 

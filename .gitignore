@@ -1,0 +1,11 @@
+.nsh/
+out/
+connection.ts
+.test-data/
+__pycache__/
+.runtime-source
+native/target/
+dist/
+.build/
+.venv/
+*.spec
