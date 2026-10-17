@@ -57,9 +57,10 @@ function App() {
   });
   effect(() => {
     review();
+    selection()?.path;
     if (reduceMotion()) { panelReveal.set(1); return; }
     panelReveal.set(0);
-    void panelReveal.timing(1, { duration: 320, easing: [0.16,1,0.3,1] });
+    void panelReveal.timing(1, { duration: 220, easing: [0.16,1,0.3,1] });
   });
   effect(() => {
     if (!busy() || reduceMotion()) { sweep.set(0); return; }
@@ -74,12 +75,12 @@ function App() {
     if (!response.ok) throw new Error(result.error || 'Request failed');
     return result;
   }
-  async function scan() {
+  async function scan(target = path()) {
     if (busy()) return;
     const run = ++generation;
     busy.set(true); message.set('Scanning… large folders may take a moment.');
     try {
-      const data: Snapshot = await request('/scan', { path: path() });
+      const data: Snapshot = await request('/scan', { path: target });
       if (run !== generation) return;
       batch(()=>{listing.set(null);snapshot.set(data);current.set(data.root);selection.set(data.root);marked.set([]);review.set(false);path.set(data.root.path);directoryPath.set(data.root.path);page.set(0);query.set('');});
       message.set((data.errorCount || data.errors.length) ? `${data.errorCount || data.errors.length} unreadable or skipped paths. Scan totals exclude these items.` : 'Scan complete · symbolic links and other volumes are not followed.');
@@ -107,14 +108,18 @@ function App() {
     void request('/view', parameters).then((result: DirectoryView) => {
       if (run !== viewGeneration) return;
       motionLayout();
-      batch(()=>{listing.set(result);current.set(result.node);browseBusy.set(false);});
+      batch(()=>{listing.set(result);current.set(result.node);path.set(result.node.path);browseBusy.set(false);});
     }).catch(error=>{
       if(run===viewGeneration){browseBusy.set(false);message.set(String(error));}
     });
   });
   function up() {
+    if(busy() || browseBusy()) return;
+    const folder=current()?.path;
+    if(!folder || folder==='/') return;
     const ancestors=listing()?.ancestors || [];
     if(ancestors.length>1) enter(ancestors[ancestors.length-2]);
+    else void scan(folder.slice(0,folder.lastIndexOf('/')) || '/');
   }
   function toggleMark(node: DiskNode | null) {
     if (!node || node.aggregate || node.path === snapshot()?.root.path || busy() || browseBusy()) return;
@@ -156,10 +161,10 @@ function App() {
     const list = children(); const i = list.findIndex(n=>n.path===selection()?.path); if (list.length) selection.set(list[Math.min(i+1,list.length-1)]);
   }, 'up': () => { const list=children(); const i=list.findIndex(n=>n.path===selection()?.path); if(list.length) selection.set(list[Math.max(i-1,0)]); } }, { when: 'notEditing' });
   return <View style={{ flex:1,backgroundColor:C.bg,opacity:entrance }}>
-    <View desktop={{windowDrag:true}} testID="titlebar" style={{height:56,flexDirection:'row',alignItems:'center',gap:10,paddingLeft:Math.max(16,titleBar().left+8),paddingRight:Math.max(16,titleBar().right+8),borderBottomWidth:1,borderColor:C.line,backgroundColor:'#09120c',...finish}}>
+    <View desktop={{windowDrag:true}} testID="titlebar" style={{height:56,flexDirection:'row',alignItems:'center',gap:10,paddingLeft:Math.max(16,titleBar().left+8),paddingRight:Math.max(16,titleBar().right+8),borderBottomWidth:1,borderColor:C.line,backgroundColor:'#111113',...finish}}>
       <AppMark/>
       <Text style={{fontFamily:mono,fontSize:17,fontWeight:'600',letterSpacing:-0.5,color:C.text}}>disktree</Text>
-      <Input ref={node=>{pathField=node;}} accessibilityLabel="Folder path" value={path()} onChangeText={v=>path.set(v)} onSubmitEditing={()=>void scan()} autoCorrect={false} autoCapitalize="none" placeholder="Folder path…" style={{fontFamily:mono,flex:1,color:C.text,fontSize:12,padding:8,backgroundColor:'#040905',borderWidth:1,borderColor:C.line,borderRadius:6}}/>
+      <Input ref={node=>{pathField=node;}} accessibilityLabel="Folder path" value={path()} onChangeText={v=>path.set(v)} onSubmitEditing={()=>void scan()} autoCorrect={false} autoCapitalize="none" placeholder="Folder path…" style={{fontFamily:mono,flex:1,color:C.text,fontSize:12,padding:8,backgroundColor:'#09090b',borderWidth:1,borderColor:C.line,borderRadius:6}}/>
       <Button label={busy()?'Working…':'Scan folder'} action={()=>void scan()} active/>
       <Button label="↑ Parent" action={up}/>
       <MetricControl value={metric()} change={value=>batch(()=>{metric.set(value);page.set(0);})}/>
@@ -172,17 +177,16 @@ function App() {
     <View style={{flex:1,flexDirection:'row',minHeight:150}}>
       <View style={{flex:1,padding:10,gap:7}}>
         <View style={{flexDirection:'row',alignItems:'center',gap:8,height:28}}>
-          <Each of={crumbs()}>{n=><Text accessibilityRole="button" accessibilityLabel={`Go to ${n().name}`} onPress={()=>enter(n())} numberOfLines={1} style={{fontFamily:mono,fontSize:12,color:C.amber,cursor:'pointer'}}>{n().name} /</Text>}</Each>
+          <Each of={crumbs()}>{(n,i)=><Text accessibilityRole="button" accessibilityState={{disabled:i()===crumbs().length-1}} accessibilityLabel={i()===crumbs().length-1?`Current folder: ${n().name}`:`Go to ${n().name}`} onPress={i()===crumbs().length-1?undefined:()=>enter(n())} numberOfLines={1} style={{fontFamily:mono,fontSize:12,color:i()===crumbs().length-1?C.muted:C.amber,cursor:i()===crumbs().length-1?'default':'pointer'}}>{n().name}{i()===crumbs().length-1?'':' /'}</Text>}</Each>
           <View style={{flex:1}}/>
           <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{current()?`${formatSize(current()!.size)} · ${current()!.files.toLocaleString()} files`:''}{browseBusy()?' · Loading…':''}</Text>
-          <Input ref={node=>{filterField=node;}} value={query()} onChangeText={v=>batch(()=>{query.set(v);page.set(0);})} placeholder="Filter names…" placeholderTextColor={C.muted} style={{fontFamily:mono,width:130,fontSize:11,color:C.text,padding:6,backgroundColor:'#0c1c11',borderRadius:4}}/>
+          <Input ref={node=>{filterField=node;}} value={query()} onChangeText={v=>batch(()=>{query.set(v);page.set(0);})} placeholder="Filter names…" placeholderTextColor={C.muted} style={{fontFamily:mono,width:130,fontSize:11,color:C.text,padding:6,backgroundColor:'#18181c',borderRadius:4}}/>
         </View>
         <Scroll horizontal style={{height:20,flexGrow:0,flexShrink:0}}><View style={{flexDirection:'row',gap:13,alignItems:'center'}}><Each of={categories}>{category=><View style={{flexDirection:'row',alignItems:'center',gap:4}}><View style={{width:8,height:8,borderRadius:1,backgroundColor:category().color}}/><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{category().label}</Text></View>}</Each></View></Scroll>
-        <View testID="treemap" class="hover:opacity-100" {...{onHoverIn:()=>{pointerInMap.set(true);pathField?.blur();filterField?.blur();},onHoverOut:()=>{pointerInMap.set(false);hovered.set(new Map());}}} pinch={{scale:cameraScale}} pan={{x:cameraX,y:cameraY}} onPinchEnd={()=>{void cameraScale.getValue().then(endPinch);}} onLayout={e=>frame.set({width:e.width,height:e.height})} style={{flex:1,overflow:'hidden',backgroundColor:'#030704',borderRadius:3}}>
+        <View testID="treemap" class="hover:opacity-100" {...{onHoverIn:()=>{pointerInMap.set(true);pathField?.blur();filterField?.blur();},onHoverOut:()=>{pointerInMap.set(false);hovered.set(new Map());}}} pinch={{scale:cameraScale}} pan={{x:cameraX,y:cameraY}} onPinchEnd={()=>{void cameraScale.getValue().then(endPinch);}} onLayout={e=>frame.set({width:e.width,height:e.height})} style={{flex:1,overflow:'hidden',backgroundColor:'#050506',borderRadius:3}}>
           <View style={{width:frame().width,height:frame().height,transform:cameraTransform()}}><Each of={tiles()} key={tile=>tile.node.path}>{(tile,i)=><MapTile tile={tile()} order={i()} selected={selection()?.path===tile().node.path} marked={marked().some(n=>n.path===tile().node.path || tile().node.path.startsWith(n.path+'/'))} dimmed={!!selection() && selection()?.path!==current()?.path && selection()?.path!==tile().node.path} metric={metric()} levels={detailLevels()} zoom={zoom()} hover={()=>hoverNode(tile().node,true)} leave={()=>hoverNode(tile().node,false)} choose={()=>selectOrEnter(tile().node)} open={()=>enter(tile().node)}/>}</Each>
           </View>
           <If when={!tiles().length}><View pointerEvents="none" style={{position:'absolute',left:0,right:0,top:0,bottom:0}}><EmptyMap busy={busy()}/></View></If>
-          <View style={{position:'absolute',right:10,bottom:10,flexDirection:'row',alignItems:'center',gap:4,padding:4,borderRadius:9,backgroundColor:'rgba(4,13,7,0.96)',borderWidth:1,borderColor:C.line}}><Button label="−" action={()=>zoomMap(zoom()/1.5)}/><Button label={`${Math.round(zoom()*100)}%`} action={()=>zoomMap(1)}/><Button label="+" action={()=>zoomMap(zoom()*1.5)}/></View>
         </View>
       </View>
       <View style={{width:284,backgroundColor:C.panel,borderLeftWidth:1,borderColor:C.line}}>
@@ -192,8 +196,8 @@ function App() {
             <If when={!review()}>
               <View style={{flexDirection:'row',alignItems:'center',gap:8}}><View style={{width:3,height:19,backgroundColor:selection()?kind(selection()!).color:C.amber}}/><Text style={{fontFamily:mono,fontSize:20,fontWeight:'600',color:C.text,flex:1}} numberOfLines={1}>{selection()?.name || 'Nothing selected'}</Text></View>
               <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{selection()?.path || 'Select a tile to inspect it.'}</Text>
-              <Text style={{fontFamily:mono,fontSize:38,fontWeight:'500',letterSpacing:-1,color:'#bcffd0',fontVariant:['tabular-nums']}}>{formatSize(selection()?.size || 0)}</Text>
-              <View style={{height:4,backgroundColor:'#1c3524',borderRadius:2}}><View style={{height:4,width:`${100*(selection()?.size || 0)/(snapshot()?.root.size || 1)}%`,backgroundColor:selection()?kind(selection()!).color:C.amber,borderRadius:2}}/></View>
+              <Text style={{fontFamily:mono,fontSize:38,fontWeight:'500',letterSpacing:-1,color:'#e8e8ed',fontVariant:['tabular-nums']}}>{formatSize(selection()?.size || 0)}</Text>
+              <View style={{height:4,backgroundColor:'#26262b',borderRadius:2}}><View style={{height:4,width:`${100*(selection()?.size || 0)/(snapshot()?.root.size || 1)}%`,backgroundColor:selection()?kind(selection()!).color:C.amber,borderRadius:2}}/></View>
               <View style={{flexDirection:'row',gap:16}}><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>OF SCAN</Text><Text style={{fontFamily:mono,fontSize:15,color:C.text}}>{((selection()?.size || 0)/(snapshot()?.root.size || 1)*100).toFixed(1)}%</Text></View><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>FILES</Text><Text style={{fontFamily:mono,fontSize:15,color:C.text}}>{(selection()?.files || 0).toLocaleString()}</Text></View></View>
               <View style={{flexDirection:'row',gap:16}}><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>MODIFIED</Text><Text style={{fontFamily:mono,fontSize:12,color:C.text}}>{selection()?new Date(selection()!.modified*1000).toLocaleDateString():'—'}</Text></View><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>KIND</Text><Text style={{fontFamily:mono,fontSize:12,color:C.text}}>{selection()?kind(selection()!).label:'—'}</Text></View></View>
               <View style={{flexDirection:'row',gap:6}}><Button label="Open folder" action={()=>{if(selection())enter(selection()!);}}/><Button label="Mark / unmark" action={()=>toggleMark(selection())}/></View>
@@ -212,19 +216,19 @@ function App() {
               <View style={{height:1,backgroundColor:C.line}}/>
               <View style={{flexDirection:'row',alignItems:'center',gap:5}}><Text style={{fontFamily:mono,flex:1,fontSize:10,letterSpacing:0.8,color:C.muted}}>CONTENTS · {listing()?.count || 0} ITEMS</Text><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{listing()?.count?`${listing()!.offset+1}–${Math.min(listing()!.offset+listing()!.pageSize,listing()!.count)}`:''}</Text></View>
               <View style={{flexDirection:'row',justifyContent:'space-between'}}><Button label="‹ Previous" action={()=>changePage(page()-(listing()?.pageSize || 80))}/><Button label="Next ›" action={()=>{const v=listing();if(v && v.offset+v.pageSize<v.count)changePage(v.offset+v.pageSize);}}/></View>
-              <Each of={children()}>{node=><View onPress={()=>selectOrEnter(node())} class="hover:brightness-125" style={{paddingVertical:7,gap:5,cursor:'pointer',borderBottomWidth:1,borderColor:'#1b3021'}}><View style={{flexDirection:'row',gap:6,alignItems:'center'}}><View style={{width:3,height:13,backgroundColor:kind(node()).color}}/><Text numberOfLines={1} style={{fontFamily:mono,flex:1,fontSize:11,color:selection()?.path===node().path?C.amber:C.text}}>{marked().some(n=>n.path===node().path)?'✓ ':''}{node().directory?'▸ ':''}{node().name}</Text><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{metric()==='files'?String(node().files):formatSize(node()[metric()])}</Text></View><View style={{height:2,backgroundColor:'#07120b'}}><View style={{height:2,width:`${100*node()[metric()]/(current()?.[metric()] || 1)}%`,backgroundColor:kind(node()).color}}/></View></View>}</Each>
+              <Each of={children()}>{node=><View onPress={()=>selectOrEnter(node())} class="hover:brightness-125" style={{paddingVertical:7,gap:5,cursor:'pointer',borderBottomWidth:1,borderColor:'#242428'}}><View style={{flexDirection:'row',gap:6,alignItems:'center'}}><View style={{width:3,height:13,backgroundColor:kind(node()).color}}/><Text numberOfLines={1} style={{fontFamily:mono,flex:1,fontSize:11,color:selection()?.path===node().path?C.amber:C.text}}>{marked().some(n=>n.path===node().path)?'✓ ':''}{node().directory?'▸ ':''}{node().name}</Text><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{metric()==='files'?String(node().files):formatSize(node()[metric()])}</Text></View><View style={{height:2,backgroundColor:'#101012'}}><View style={{height:2,width:`${100*node()[metric()]/(current()?.[metric()] || 1)}%`,backgroundColor:kind(node()).color}}/></View></View>}</Each>
             </If>
           </View>
         </Scroll>
-        <View style={{padding:16,gap:9,borderTopWidth:1,borderColor:C.line,backgroundColor:'#0b180f',...finish}}>
+        <View style={{padding:16,gap:9,borderTopWidth:1,borderColor:C.line,backgroundColor:'#141416',...finish}}>
           <Text style={{fontFamily:mono,fontSize:10,letterSpacing:1,color:C.muted}}>DISK SPACE</Text>
           <Text style={{fontFamily:mono,fontSize:25,fontWeight:'500',color:C.text,fontVariant:['tabular-nums']}}>{snapshot()?formatSize(snapshot()!.free):'—'}<Text style={{fontFamily:mono,fontSize:12,color:C.muted}}> free</Text></Text>
-          <View style={{height:5,backgroundColor:'#1b3524',borderRadius:2}}><View style={{height:5,width:`${snapshot()?100*(1-snapshot()!.free/snapshot()!.total):0}%`,backgroundColor:'#56b675',borderRadius:2}}/></View>
+          <View style={{height:5,backgroundColor:'#28282d',borderRadius:2}}><View style={{height:5,width:`${snapshot()?100*(1-snapshot()!.free/snapshot()!.total):0}%`,backgroundColor:'#56b675',borderRadius:2}}/></View>
           <View style={{flexDirection:'row',justifyContent:'space-between'}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{snapshot()?`${formatSize(snapshot()!.total-snapshot()!.free)} used`:''}</Text><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{snapshot()?`${formatSize(snapshot()!.total)} total`:''}</Text></View>
         </View>
       </View>
     </View>
-    <View style={{flexDirection:'row',gap:16,alignItems:'center',paddingHorizontal:12,paddingVertical:6,borderTopWidth:1,borderColor:C.line,backgroundColor:'#071009'}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   ⌥↑ Parent   ⌘R Rescan   Esc Close review</Text><Text numberOfLines={1} style={{fontFamily:mono,flex:1,fontSize:10,color:'#6c8f77',textAlign:'right'}}>{message()}</Text></View>
+    <View style={{flexDirection:'row',gap:16,alignItems:'center',paddingHorizontal:12,paddingVertical:6,borderTopWidth:1,borderColor:C.line,backgroundColor:'#101012'}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   ⌥↑ Parent   ⌘R Rescan   Esc Close review</Text><Text numberOfLines={1} style={{fontFamily:mono,flex:1,fontSize:10,color:'#85858f',textAlign:'right'}}>{message()}</Text></View>
   </View>;
 }
 mount(App);

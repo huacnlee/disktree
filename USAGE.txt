@@ -43,7 +43,7 @@ Checks:
 
 Source: App.tsx (native UI), disk.ts (classification and treemap layout),
 scripts/service.py (scanner and Trash), scripts/run.sh (launcher).
-Visual direction: a black-and-green terminal interface, saturated category
+Visual direction: a black interface with subtle dimensional surfaces, saturated category
 colors, an original capacity-ring icon, and amber removal marks. Native
 motion includes an entrance reveal, scan sweep, treemap layout transitions,
 selection focus, pinch/pan, and a review-panel reveal. Respects Reduce Motion.

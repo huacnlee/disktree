@@ -1,6 +1,6 @@
 # Disktree
 
-A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](https://github.com/tobi/disktree). Runs on macOS and Linux with an original capacity-ring icon and a black-and-green terminal interface.
+A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](https://github.com/tobi/disktree). Runs on macOS and Linux with an original capacity-ring icon and a black interface with subtle dimensional surfaces and vivid category colors.
 
 - Scans immediately on launch and remembers the last directory.
 - Nested, color-coded treemap for code, Git, caches, builds, toolchains, media, and more.

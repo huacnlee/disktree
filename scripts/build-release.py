@@ -88,7 +88,7 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
     if system=='Darwin':run('codesign','--force','--deep','--sign','-','--timestamp=none',str(stage/'Disktree.app'))
     # Validate both the CLI wrapper and the embedded scanner, without opening a window.
     run(str(stage/'disktree'),'--version')
-    scanner=subprocess.Popen([str(resources/'scanner/disktree-scanner'),'--packaged'],stdout=subprocess.PIPE,text=True)
+    scanner=subprocess.Popen([str(resources/'scanner/disktree-scanner'),'--packaged'],stdout=subprocess.PIPE,text=True,env={**os.environ,'DISKTREE_STATE':str(build/'scanner-smoke-state.json')})
     try:
         import json,urllib.request
         config=json.loads(scanner.stdout.readline())
