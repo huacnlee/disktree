@@ -13,11 +13,11 @@ export function formatSize(value: number): string {
   return `${value.toFixed(i ? 1 : 0)} ${units[i]}`;
 }
 export const categories = [
-  {label:'Code',color:'#347de0'}, {label:'Git',color:'#d64779'},
-  {label:'Caches',color:'#d59a29'}, {label:'Builds',color:'#2dbb86'},
-  {label:'Toolchains',color:'#20ac9b'}, {label:'Agent data',color:'#d87938'},
-  {label:'Media',color:'#9a55df'}, {label:'Documents',color:'#758eda'},
-  {label:'Synced',color:'#20abc9'}, {label:'Other',color:'#64768e'},
+  {label:'Code',color:'#1a9e4b'}, {label:'Git',color:'#c34c69'},
+  {label:'Caches',color:'#ba902b'}, {label:'Builds',color:'#2daa83'},
+  {label:'Toolchains',color:'#779c28'}, {label:'Agent data',color:'#bd6c30'},
+  {label:'Media',color:'#9250c4'}, {label:'Documents',color:'#6b956a'},
+  {label:'Synced',color:'#239e8b'}, {label:'Other',color:'#4e725b'},
 ];
 export function kind(node: DiskNode): { label: string; color: string } {
   const path = node.path.toLowerCase();

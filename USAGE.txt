@@ -43,10 +43,10 @@ Checks:
 
 Source: App.tsx (native UI), disk.ts (classification and treemap layout),
 scripts/service.py (scanner and Trash), scripts/run.sh (launcher).
-Visual reference: dark neutral surfaces, blue phase indicators and subdued
-category colors. Native motion includes an entrance reveal, indeterminate
-scan sweep, spring phase transitions, animated treemap layout, selection
-focus and a review-panel reveal. Respects the system Reduce Motion setting.
+Visual direction: a black-and-green terminal interface, saturated category
+colors, an original capacity-ring icon, and amber removal marks. Native
+motion includes an entrance reveal, scan sweep, treemap layout transitions,
+selection focus, pinch/pan, and a review-panel reveal. Respects Reduce Motion.
 Inspired by https://github.com/tobi/disktree.
 
 The last successfully scanned or browsed directory is saved in

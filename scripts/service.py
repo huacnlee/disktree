@@ -213,6 +213,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 if __name__ == '__main__':
+    if '--parent-pid' in sys.argv:
+        parent_pid=int(sys.argv[sys.argv.index('--parent-pid')+1])
+        def watch_parent():
+            import time
+            while True:
+                time.sleep(1)
+                try:os.kill(parent_pid,0)
+                except ProcessLookupError:os._exit(0)
+        threading.Thread(target=watch_parent,daemon=True).start()
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     connection = dict(endpoint='http://127.0.0.1:' + str(server.server_port), token=TOKEN,
                       initialPath=os.environ.get('DISKTREE_ROOT') or saved_location())

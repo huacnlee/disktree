@@ -1,14 +1,13 @@
 import { cleanup, effect, Text, View, type JSX } from 'nsh';
 import { Animated, createNativeValue } from 'nsh/animated';
+import { Platform } from 'nsh/device';
 import { reduceMotion } from 'nsh/accessibility';
 import { Canvas } from 'nsh/canvas';
 import { formatSize, kind, tileColor, type Tile } from './disk';
 
-export const palette = { bg: '#0b0e13', panel: '#141a22', line: '#2a3544', text: '#e8eef6', muted: '#8d9aaf', amber: '#71aaff' };
-export const finish = {
-  backgroundImage: 'linear-gradient(155deg, rgba(159,188,229,0.055) 0%, rgba(15,21,30,0.1) 55%, rgba(0,0,0,0.15) 100%)',
-  boxShadow: 'inset 0 1px 0 rgba(210,229,255,0.06), 0 12px 32px rgba(0,0,0,0.22)',
-};
+export const mono=Platform.OS==='macos'?'Menlo':'monospace';
+export const palette = { bg:'#050806',panel:'#0a110c',line:'#203c29',text:'#d5e8d9',muted:'#789681',amber:'#65f193' };
+export const finish = {boxShadow:'inset 0 1px 0 rgba(101,241,147,0.035)'};
 export function Appear(p: { children: JSX.Element; delay?: number; flex?: number }) {
   const value = createNativeValue(0);
   effect(() => {
@@ -20,7 +19,7 @@ export function Appear(p: { children: JSX.Element; delay?: number; flex?: number
 export function Button(p: { label: string; action: () => void; active?: boolean }) {
   const press = createNativeValue(1);
   const set = (v:number) => { if(reduceMotion())press.set(v);else void press.spring(v,{stiffness:420,damping:24}); };
-  return <View accessibilityRole="button" accessibilityLabel={p.label} onPress={p.action} onPressIn={()=>set(0.955)} onPressOut={()=>set(1)} class="hover:brightness-125" style={{paddingHorizontal:14,paddingVertical:10,borderRadius:9,borderCurve:'continuous',borderWidth:1,borderColor:p.active?'#79adff':'#344153',backgroundColor:p.active?'#3775cd':'#202a38',backgroundImage:p.active?'linear-gradient(180deg, rgba(161,205,255,0.24), rgba(30,70,140,0.1))':'linear-gradient(180deg, rgba(170,191,225,0.09), transparent)',boxShadow:p.active?'inset 0 1px 0 rgba(255,255,255,0.25), 0 3px 16px rgba(60,120,240,0.16)':'inset 0 1px 0 rgba(255,255,255,0.045), 0 2px 3px rgba(0,0,0,0.2)',cursor:'pointer',transform:[{scale:press}]}}><Text style={{fontSize:12,fontWeight:'600',color:p.active?'#fff':palette.text}}>{p.label}</Text></View>;
+  return <View accessibilityRole="button" accessibilityLabel={p.label} onPress={p.action} onPressIn={()=>set(0.955)} onPressOut={()=>set(1)} class="hover:brightness-125" style={{paddingHorizontal:14,paddingVertical:10,borderRadius:4,borderCurve:'continuous',borderWidth:1,borderColor:p.active?'#68f296':'#254831',backgroundColor:p.active?'#185f32':'#111e15',backgroundImage:undefined,boxShadow:p.active?'0 0 12px rgba(60,220,110,0.09)':'none',cursor:'pointer',transform:[{scale:press}]}}><Text style={{fontFamily:mono,fontSize:12,fontWeight:'600',color:p.active?'#fff':palette.text}}>{p.label}</Text></View>;
 }
 export function Capacity(p: {total:number;free:number;busy:boolean}) {
   const fill = createNativeValue(0);
@@ -34,13 +33,13 @@ export function Capacity(p: {total:number;free:number;busy:boolean}) {
   return <View style={{width:142,height:142,alignItems:'center',justifyContent:'center'}}>
     <Canvas pointerEvents="none" style={{position:'absolute',left:0,top:0,width:142,height:142}} draw={ctx=>{
       ctx.lineWidth=1;
-      for(let i=0;i<60;i++){const a=i*Math.PI/30-Math.PI/2;ctx.strokeStyle=i%5===0?'#64748b':'#2b3747';ctx.beginPath();ctx.moveTo(71+Math.cos(a)*64,71+Math.sin(a)*64);ctx.lineTo(71+Math.cos(a)*(i%5===0?59:62),71+Math.sin(a)*(i%5===0?59:62));ctx.stroke();}
-      ctx.lineWidth=6;ctx.lineCap='round';ctx.strokeStyle='#233043';ctx.beginPath();ctx.arc(71,71,50,-Math.PI/2,Math.PI*1.5);ctx.stroke();
-      ctx.strokeStyle='#79afff';ctx.beginPath();ctx.arc(71,71,50,-Math.PI/2,fill.mul(Math.PI*2).sub(Math.PI/2));ctx.stroke();
-      if(p.busy){ctx.lineWidth=2;ctx.strokeStyle='#b8d7ff';ctx.beginPath();ctx.arc(71,71,55,spin,spin.add(0.6));ctx.stroke();}
+      for(let i=0;i<60;i++){const a=i*Math.PI/30-Math.PI/2;ctx.strokeStyle=i%5===0?'#55755f':'#1b3523';ctx.beginPath();ctx.moveTo(71+Math.cos(a)*64,71+Math.sin(a)*64);ctx.lineTo(71+Math.cos(a)*(i%5===0?59:62),71+Math.sin(a)*(i%5===0?59:62));ctx.stroke();}
+      ctx.lineWidth=6;ctx.lineCap='round';ctx.strokeStyle='#173323';ctx.beginPath();ctx.arc(71,71,50,-Math.PI/2,Math.PI*1.5);ctx.stroke();
+      ctx.strokeStyle='#65f193';ctx.beginPath();ctx.arc(71,71,50,-Math.PI/2,fill.mul(Math.PI*2).sub(Math.PI/2));ctx.stroke();
+      if(p.busy){ctx.lineWidth=2;ctx.strokeStyle='#bcffd0';ctx.beginPath();ctx.arc(71,71,55,spin,spin.add(0.6));ctx.stroke();}
     }}/>
-    <Text style={{fontSize:25,fontWeight:'600',letterSpacing:-1,color:palette.text,fontVariant:['tabular-nums']}}>{p.total?`${Math.round(100*(1-p.free/p.total))}%`:'—'}</Text>
-    <Text style={{fontSize:9,color:palette.muted,letterSpacing:1.5}}>OCCUPIED</Text>
+    <Text style={{fontFamily:mono,fontSize:25,fontWeight:'600',letterSpacing:-1,color:palette.text,fontVariant:['tabular-nums']}}>{p.total?`${Math.round(100*(1-p.free/p.total))}%`:'—'}</Text>
+    <Text style={{fontFamily:mono,fontSize:9,color:palette.muted,letterSpacing:1.5}}>OCCUPIED</Text>
   </View>;
 }
 export function MapTile(p: {tile:Tile;order:number;selected:boolean;dimmed:boolean;marked:boolean;metric:string;levels:number;zoom:number;hover:()=>void;leave:()=>void;choose:()=>void;open:()=>void}) {
@@ -52,12 +51,12 @@ export function MapTile(p: {tile:Tile;order:number;selected:boolean;dimmed:boole
   effect(()=>{if(reduceMotion())reveal.set(1);else void reveal.timing(1,{duration:520,delay:Math.min(p.order*28,280),easing:[0.16,1,0.3,1]});});
   effect(()=>{const to=p.selected?1:0;if(reduceMotion())focus.set(to);else void focus.spring(to,{stiffness:220,damping:26});});
   function scale(v:number){if(!reduceMotion())void press.spring(v,{stiffness:400,damping:26});}
-  return <View accessibilityRole="button" accessibilityLabel={p.tile.node.name} {...{onHoverIn:()=>p.hover(),onHoverOut:()=>p.leave()}} onPress={p.choose} onPressIn={()=>scale(0.982)} onPressOut={()=>scale(1)} class="hover:brightness-125" style={{position:'absolute',left:p.tile.x+1/p.zoom,top:p.tile.y+1/p.zoom,width:Math.max(0,p.tile.width-2/p.zoom),height:Math.max(0,p.tile.height-2/p.zoom),borderRadius:3,borderCurve:'continuous',overflow:'hidden',backgroundColor:p.marked?'#a36a18':tileColor(p.tile.node,p.tile.depth),backgroundImage:'linear-gradient(145deg, rgba(203,225,255,0.06) 0%, rgba(12,21,36,0.035) 100%)',borderWidth:(p.marked?2:1)/p.zoom,borderColor:p.marked?'#ffd36c':focus.interpolate({inputRange:[0,1],outputRange:['rgba(200,220,255,0.12)','#b9d9ff']}),boxShadow:'inset 0 1px 0 rgba(255,255,255,0.13), inset 0 -1px 0 rgba(0,0,0,0.18), 0 3px 8px rgba(0,0,0,0.16)',padding:5/p.zoom,opacity:reveal.mul(p.dimmed?0.94:1),transform:[{scale:reveal.interpolate({inputRange:[0,1],outputRange:[0.95,1]}).mul(press)}],cursor:'pointer'}}>
+  return <View accessibilityRole="button" accessibilityLabel={p.tile.node.name} {...{onHoverIn:()=>p.hover(),onHoverOut:()=>p.leave()}} onPress={p.choose} onPressIn={()=>scale(0.982)} onPressOut={()=>scale(1)} class="hover:brightness-125" style={{position:'absolute',left:p.tile.x+1/p.zoom,top:p.tile.y+1/p.zoom,width:Math.max(0,p.tile.width-2/p.zoom),height:Math.max(0,p.tile.height-2/p.zoom),borderRadius:3,borderCurve:'continuous',overflow:'hidden',backgroundColor:p.marked?'#a36a18':tileColor(p.tile.node,p.tile.depth),backgroundImage:undefined,borderWidth:(p.marked?2:1)/p.zoom,borderColor:p.marked?'#ffd36c':focus.interpolate({inputRange:[0,1],outputRange:['rgba(200,220,255,0.12)','#a3ffbf']}),boxShadow:'inset 0 0 0 1px rgba(0,0,0,0.1)',padding:5/p.zoom,opacity:reveal.mul(p.dimmed?0.94:1),transform:[{scale:reveal.interpolate({inputRange:[0,1],outputRange:[0.95,1]}).mul(press)}],cursor:'pointer'}}>
     <If when={p.marked}><Canvas pointerEvents="none" style={{position:'absolute',left:0,top:0,right:0,bottom:0}} draw={(ctx,size)=>{ctx.strokeStyle='rgba(255,221,142,0.25)';ctx.lineWidth=1/p.zoom;ctx.beginPath();for(let x=-size.height;x<size.width;x+=10/p.zoom){ctx.moveTo(x,size.height);ctx.lineTo(x+size.height,0);}ctx.stroke();}}/></If>
-    <If when={p.marked && p.tile.width*p.zoom>110 && p.tile.height*p.zoom>50}><View pointerEvents="none" style={{position:'absolute',right:5/p.zoom,bottom:5/p.zoom,paddingHorizontal:5/p.zoom,paddingVertical:2/p.zoom,borderRadius:3/p.zoom,backgroundColor:'#ffd36c'}}><Text style={{fontSize:9/p.zoom,fontWeight:'700',color:'#382305'}}>✓ MARKED</Text></View></If>
-    <View pointerEvents="none" style={{position:'absolute',left:0,top:0,right:0,height:2,backgroundColor:'#c1dcff',opacity:focus}}/>
-    <If when={p.tile.width*p.zoom>70 && p.tile.height*p.zoom>26}><View style={{flexDirection:'row',gap:5,alignItems:'center'}}><Text numberOfLines={1} style={{flex:1,fontSize:11/p.zoom,fontWeight:'600',color:ink()}}>{p.marked?'✓ ':''}{p.tile.node.name}</Text><If when={p.tile.node.directory && p.tile.width*p.zoom>140}><Text onPress={p.open} style={{fontSize:13/p.zoom,color:ink()}}>↗</Text></If></View></If>
-    <If when={p.tile.width*p.zoom>90 && p.tile.height*p.zoom>70 && (p.tile.depth===p.levels || !p.tile.node.children.length)}><Text style={{marginTop:5/p.zoom,fontSize:(p.tile.width*p.zoom>200?22:13)/p.zoom,fontWeight:'500',fontVariant:['tabular-nums'],letterSpacing:-0.5,color:ink()}}>{p.metric==='files'?`${p.tile.node.files} files`:formatSize(p.metric==='apparent'?p.tile.node.apparent:p.tile.node.size)}</Text></If>
+    <If when={p.marked && p.tile.width*p.zoom>110 && p.tile.height*p.zoom>50}><View pointerEvents="none" style={{position:'absolute',right:5/p.zoom,bottom:5/p.zoom,paddingHorizontal:5/p.zoom,paddingVertical:2/p.zoom,borderRadius:3/p.zoom,backgroundColor:'#ffd36c'}}><Text style={{fontFamily:mono,fontSize:9/p.zoom,fontWeight:'700',color:'#382305'}}>✓ MARKED</Text></View></If>
+    <View pointerEvents="none" style={{position:'absolute',left:0,top:0,right:0,height:2,backgroundColor:'#a3ffbf',opacity:focus}}/>
+    <If when={p.tile.width*p.zoom>70 && p.tile.height*p.zoom>26}><View style={{flexDirection:'row',gap:5,alignItems:'center'}}><Text numberOfLines={1} style={{fontFamily:mono,flex:1,fontSize:11/p.zoom,fontWeight:'600',color:ink()}}>{p.marked?'✓ ':''}{p.tile.node.name}</Text><If when={p.tile.node.directory && p.tile.width*p.zoom>140}><Text onPress={p.open} style={{fontFamily:mono,fontSize:13/p.zoom,color:ink()}}>↗</Text></If></View></If>
+    <If when={p.tile.width*p.zoom>90 && p.tile.height*p.zoom>70 && (p.tile.depth===p.levels || !p.tile.node.children.length)}><Text style={{fontFamily:mono,marginTop:5/p.zoom,fontSize:(p.tile.width*p.zoom>200?22:13)/p.zoom,fontWeight:'500',fontVariant:['tabular-nums'],letterSpacing:-0.5,color:ink()}}>{p.metric==='files'?`${p.tile.node.files} files`:formatSize(p.metric==='apparent'?p.tile.node.apparent:p.tile.node.size)}</Text></If>
   </View>;
 }
 export function EmptyMap(p:{busy:boolean}) {
@@ -67,12 +66,12 @@ export function EmptyMap(p:{busy:boolean}) {
     const loop=Animated.loop(Animated.sequence([Animated.timing(scan,{toValue:1,duration:1600,easing:'easeInOut'}),Animated.timing(scan,{toValue:0,duration:1600,easing:'easeInOut'})]));void loop.start();cleanup(()=>loop.stop());
   });
   return <View style={{flex:1,alignItems:'center',justifyContent:'center',gap:20}}>
-    <View style={{width:220,height:144,transform:[{rotate:'-6deg'}],backgroundColor:'#111b29',borderRadius:14,padding:7,borderWidth:1,borderColor:'#34445b',boxShadow:'inset 0 1px 0 rgba(255,255,255,0.08), 0 20px 50px rgba(0,0,0,0.4)',flexDirection:'row',gap:5}}>
-      <View style={{flex:1.4,backgroundColor:'#233a57',borderRadius:7,padding:12,justifyContent:'flex-end'}}><View style={{width:26,height:3,backgroundColor:'#597ca7',borderRadius:2}}/></View>
-      <View style={{flex:1,gap:5}}><View style={{flex:1,backgroundColor:'#26394b',borderRadius:7}}/><View style={{flex:1.3,backgroundColor:'#293344',borderRadius:7}}/></View>
-      <View pointerEvents="none" style={{position:'absolute',left:0,top:0,bottom:0,width:2,backgroundColor:'#7db4ff',opacity:p.busy?0.8:0,transform:[{translateX:scan.mul(218)}],boxShadow:'0 0 20px #79aaff'}}/>
+    <View style={{width:220,height:144,transform:[{rotate:'-6deg'}],backgroundColor:'#09180e',borderRadius:14,padding:7,borderWidth:1,borderColor:'#28533a',boxShadow:'inset 0 1px 0 rgba(255,255,255,0.08), 0 20px 50px rgba(0,0,0,0.4)',flexDirection:'row',gap:5}}>
+      <View style={{flex:1.4,backgroundColor:'#0d3b20',borderRadius:7,padding:12,justifyContent:'flex-end'}}><View style={{width:26,height:3,backgroundColor:'#52b976',borderRadius:2}}/></View>
+      <View style={{flex:1,gap:5}}><View style={{flex:1,backgroundColor:'#123522',borderRadius:7}}/><View style={{flex:1.3,backgroundColor:'#182c1e',borderRadius:7}}/></View>
+      <View pointerEvents="none" style={{position:'absolute',left:0,top:0,bottom:0,width:2,backgroundColor:'#65f193',opacity:p.busy?0.8:0,transform:[{translateX:scan.mul(218)}],boxShadow:'0 0 20px #65f193'}}/>
     </View>
-    <View style={{alignItems:'center',gap:8}}><Text style={{fontSize:24,fontWeight:'500',letterSpacing:-0.7,color:palette.text}}>{p.busy?'Mapping your space':'See the shape of your storage.'}</Text><Text style={{fontSize:12,color:palette.muted}}>{p.busy?'Reading folders and measuring their footprint…':'Scan a folder. Find the weight. Make room.'}</Text></View>
+    <View style={{alignItems:'center',gap:8}}><Text style={{fontFamily:mono,fontSize:24,fontWeight:'500',letterSpacing:-0.7,color:palette.text}}>{p.busy?'Mapping your space':'See the shape of your storage.'}</Text><Text style={{fontFamily:mono,fontSize:12,color:palette.muted}}>{p.busy?'Reading folders and measuring their footprint…':'Scan a folder. Find the weight. Make room.'}</Text></View>
   </View>;
 }
 
@@ -80,18 +79,18 @@ export function MetricControl(p:{value:'size'|'apparent'|'files';change:(value:'
   const offset=createNativeValue(0);
   const options=[{key:'size' as const,label:'Disk size'},{key:'apparent' as const,label:'Apparent'},{key:'files' as const,label:'Files'}];
   effect(()=>{const target=options.findIndex(v=>v.key===p.value)*76;if(reduceMotion())offset.set(target);else void offset.spring(target,{stiffness:350,damping:32});});
-  return <View style={{flexDirection:'row',padding:3,borderRadius:10,backgroundColor:'#0b121d',borderWidth:1,borderColor:'#263346',boxShadow:'inset 0 2px 4px rgba(0,0,0,0.3)'}}>
-    <View pointerEvents="none" style={{position:'absolute',left:3,top:3,bottom:3,width:76,borderRadius:7,backgroundColor:'#2b3c54',borderWidth:1,borderColor:'#435d7e',backgroundImage:'linear-gradient(180deg, rgba(171,207,255,0.1), transparent)',boxShadow:'0 2px 4px rgba(0,0,0,0.25)',transform:[{translateX:offset}]}}/>
-    <Each of={options}>{v=><View accessibilityRole="tab" accessibilityLabel={v().label} accessibilityState={{selected:p.value===v().key}} onPress={()=>p.change(v().key)} style={{width:76,paddingVertical:8,alignItems:'center',cursor:'pointer'}}><Text style={{fontSize:11,fontWeight:'500',color:p.value===v().key?'#e3edfb':'#7f91a9'}}>{v().label}</Text></View>}</Each>
+  return <View style={{flexDirection:'row',padding:3,borderRadius:4,backgroundColor:'#050b07',borderWidth:1,borderColor:'#24442e',boxShadow:'inset 0 2px 4px rgba(0,0,0,0.3)'}}>
+    <View pointerEvents="none" style={{position:'absolute',left:3,top:3,bottom:3,width:76,borderRadius:2,backgroundColor:'#153d23',borderWidth:1,borderColor:'#3a8150',backgroundImage:'linear-gradient(180deg, rgba(171,207,255,0.1), transparent)',boxShadow:'0 2px 4px rgba(0,0,0,0.25)',transform:[{translateX:offset}]}}/>
+    <Each of={options}>{v=><View accessibilityRole="tab" accessibilityLabel={v().label} accessibilityState={{selected:p.value===v().key}} onPress={()=>p.change(v().key)} style={{width:76,paddingVertical:8,alignItems:'center',cursor:'pointer'}}><Text style={{fontFamily:mono,fontSize:11,fontWeight:'500',color:p.value===v().key?'#b8ffd0':'#6d9179'}}>{v().label}</Text></View>}</Each>
   </View>;
 }
 
 /** Original capacity-ring mark; shared geometry with assets/icon.svg. */
 export function AppMark() {
   return <Canvas pointerEvents="none" style={{width:24,height:24}} draw={ctx=>{
-    ctx.fillStyle='#101d30';ctx.beginPath();ctx.roundRect(0,0,24,24,6);ctx.fill();
-    ctx.strokeStyle='#68a6ff';ctx.lineWidth=1.8;ctx.lineCap='round';ctx.beginPath();ctx.arc(12,12,6.6,-0.7,Math.PI*2);ctx.stroke();
-    ctx.strokeStyle='#9be8d5';ctx.lineWidth=1.1;ctx.beginPath();ctx.moveTo(9.4,9.4);ctx.lineTo(13.8,9.4);ctx.moveTo(9.4,12);ctx.lineTo(15.2,12);ctx.moveTo(9.4,14.6);ctx.lineTo(12.6,14.6);ctx.stroke();
-    ctx.fillStyle='#9be8d5';ctx.beginPath();ctx.arc(18.6,8.5,1,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#07120b';ctx.beginPath();ctx.roundRect(0,0,24,24,6);ctx.fill();
+    ctx.strokeStyle='#65f193';ctx.lineWidth=1.8;ctx.lineCap='round';ctx.beginPath();ctx.arc(12,12,6.6,-0.7,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle='#baffcb';ctx.lineWidth=1.1;ctx.beginPath();ctx.moveTo(9.4,9.4);ctx.lineTo(13.8,9.4);ctx.moveTo(9.4,12);ctx.lineTo(15.2,12);ctx.moveTo(9.4,14.6);ctx.lineTo(12.6,14.6);ctx.stroke();
+    ctx.fillStyle='#baffcb';ctx.beginPath();ctx.arc(18.6,8.5,1,0,Math.PI*2);ctx.fill();
   }}/>;
 }

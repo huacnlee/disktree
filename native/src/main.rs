@@ -35,6 +35,8 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
     let mut scanner = Scanner(
         Command::new(root.join("scanner/disktree-scanner"))
             .arg("--packaged")
+            .arg("--parent-pid")
+            .arg(std::process::id().to_string())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()?,
