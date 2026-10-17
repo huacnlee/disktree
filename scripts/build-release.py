@@ -56,10 +56,13 @@ def main():
         with (app/'Info.plist').open('wb') as file:
             plistlib.dump(dict(CFBundleExecutable='disktree',CFBundleName='Disktree',CFBundleIconFile='AppIcon',CFBundleIdentifier='com.huacnlee.disktree',CFBundleShortVersionString=version,CFBundleVersion=version,CFBundlePackageType='APPL',LSMinimumSystemVersion='14.0',NSHighResolutionCapable=True),file)
         run('sips','-s','format','png',str(ROOT/'assets/icon.svg'),'--out',str(build/'icon.png'))
-        iconset=build/'AppIcon.iconset';iconset.mkdir(exist_ok=True)
-        for size in [16,32,64,128,256,512,1024]:
-            name=f'icon_{size}x{size}.png' if size<1024 else 'icon_512x512@2x.png'
-            run('sips','-z',str(size),str(size),str(build/'icon.png'),'--out',str(iconset/name))
+        iconset=build/'AppIcon.iconset'
+        if iconset.exists():shutil.rmtree(iconset)
+        iconset.mkdir()
+        for size in [16,32,128,256,512]:
+            for scale in [1,2]:
+                name=f'icon_{size}x{size}'+('@2x' if scale==2 else '')+'.png'
+                run('sips','-z',str(size*scale),str(size*scale),str(build/'icon.png'),'--out',str(iconset/name))
         run('iconutil','-c','icns',str(iconset),'-o',str(resources/'AppIcon.icns'))
         launcher=stage/'disktree'
         launcher.write_text('''#!/bin/sh
@@ -81,7 +84,7 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
     shutil.copy2(ROOT/'out/bundle.js',resources/'bundle.js')
     shutil.copytree(build/'scanner-dist/disktree-scanner',resources/'scanner')
     shutil.copy2(ROOT/'LICENSE',stage/'LICENSE')
-    shutil.copy2(source/'LICENSE',stage/'LICENSE.nsh')
+    shutil.copy2(source/'LICENSE-APACHE',stage/'LICENSE.nsh')
     if system=='Darwin':run('codesign','--force','--deep','--sign','-','--timestamp=none',str(stage/'Disktree.app'))
     # Validate both the CLI wrapper and the embedded scanner, without opening a window.
     run(str(stage/'disktree'),'--version')
