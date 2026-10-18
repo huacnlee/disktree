@@ -29,7 +29,7 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError,ConnectionResetError):pass
 server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
 threading.Thread(target=server.serve_forever,daemon=True).start()
-connection=base/'connection.ts'
+connection=base/'connection.example.ts'
 original=connection.read_text()
 try:
     connection.write_text(f'export const initialPath="/fixture";\nexport const endpoint="http://127.0.0.1:{server.server_port}";\nexport const token="stress";\n')

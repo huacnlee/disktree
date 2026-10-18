@@ -16,6 +16,7 @@ impl Drop for Scanner {
         let _ = self.0.wait();
     }
 }
+#[cfg(not(feature = "development"))]
 fn resources() -> std::io::Result<PathBuf> {
     let exe = std::env::current_exe()?.canonicalize()?;
     #[cfg(target_os = "macos")]
@@ -23,6 +24,35 @@ fn resources() -> std::io::Result<PathBuf> {
     #[cfg(target_os = "linux")]
     return Ok(exe.parent().unwrap().join("resources"));
 }
+
+fn app_source() -> Result<(Command, String), Box<dyn std::error::Error>> {
+    #[cfg(feature = "development")]
+    {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let bundle = nsh_bundler::bundle(&nsh_bundler::BundleOptions {
+            entry: root.join("App.tsx"),
+            minify: false,
+            split: false,
+            ui_sets: vec![nsh_ui_mobile::registry()],
+        })?;
+        let mut scanner =
+            Command::new(std::env::var_os("PYTHON").unwrap_or_else(|| "python3".into()));
+        scanner.arg(root.join("scripts/service.py"));
+        Ok((scanner, bundle.code))
+    }
+    #[cfg(not(feature = "development"))]
+    {
+        let root = resources()?;
+        Ok((
+            Command::new(root.join("scanner/disktree-scanner")),
+            std::fs::read_to_string(root.join("bundle.js"))?,
+        ))
+    }
+}
+
 fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
     if std::env::args().any(|arg| arg == "--version") {
         println!(
@@ -31,9 +61,9 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
         );
         return Ok(ExitCode::SUCCESS);
     }
-    let root = resources()?;
+    let (mut scanner_command, bundle) = app_source()?;
     let mut scanner = Scanner(
-        Command::new(root.join("scanner/disktree-scanner"))
+        scanner_command
             .arg("--packaged")
             .arg("--parent-pid")
             .arg(std::process::id().to_string())
@@ -55,7 +85,7 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
     let source = format!(
         "globalThis.__DISKTREE_CONNECTION__={};\n{}",
         serde_json::to_string(&connection)?,
-        std::fs::read_to_string(root.join("bundle.js"))?
+        bundle
     );
     let mut options = platform::AppOptions {
         title: "Disktree".into(),

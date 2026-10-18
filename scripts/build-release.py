@@ -26,16 +26,9 @@ def main():
     if not nsh:
         run('cargo','build','--manifest-path',str(source/'Cargo.toml'),'--release','--locked','-p','nsh-cli',env=env)
         nsh=str(cargo/'release/nsh')
-    connection=ROOT/'connection.ts'
-    original=connection.read_text() if connection.exists() else None
-    try:
-        connection.write_text((ROOT/'connection.example.ts').read_text())
-        run(nsh,'check')
-        run(nsh,'build')
-    finally:
-        if original is None:connection.unlink(missing_ok=True)
-        else:connection.write_text(original)
-    run('cargo','build','--manifest-path',str(ROOT/'native/Cargo.toml'),'--release','--locked',env=env)
+    run(nsh,'check')
+    run(nsh,'build')
+    run('cargo','build','--release','--locked','--no-default-features',env=env)
     run(sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onedir','--name','disktree-scanner','--distpath',str(build/'scanner-dist'),'--workpath',str(build/'scanner-work'),'--specpath',str(build),str(ROOT/'scripts/service.py'))
     stage=build/f'disktree-{version}-{target}'
     if stage.exists():shutil.rmtree(stage)

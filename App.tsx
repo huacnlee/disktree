@@ -84,7 +84,7 @@ function App() {
       if (run !== generation) return;
       batch(()=>{listing.set(null);snapshot.set(data);current.set(data.root);selection.set(data.root);marked.set([]);review.set(false);path.set(data.root.path);directoryPath.set(data.root.path);page.set(0);query.set('');});
       message.set((data.errorCount || data.errors.length) ? `${data.errorCount || data.errors.length} unreadable or skipped paths. Scan totals exclude these items.` : 'Scan complete · symbolic links and other volumes are not followed.');
-    } catch (error) { message.set(`${error instanceof Error ? error.message : error}. Start the app with scripts/run.sh and try again.`); }
+    } catch (error) { message.set(`${error instanceof Error ? error.message : error}. Start the app with cargo run and try again.`); }
     finally { busy.set(false); }
   }
   const startupScan=setTimeout(()=>void scan(),0);

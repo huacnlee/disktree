@@ -1,4 +1,4 @@
-import * as development from './connection';
+import * as development from './connection.example';
 interface Connection { endpoint: string; token: string; initialPath: string }
 const packaged = (globalThis as unknown as { __DISKTREE_CONNECTION__?: Connection }).__DISKTREE_CONNECTION__;
 export const endpoint = packaged?.endpoint ?? development.endpoint;

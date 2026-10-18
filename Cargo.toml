@@ -1,0 +1,4 @@
+[workspace]
+members = ["native"]
+default-members = ["native"]
+resolver = "3"

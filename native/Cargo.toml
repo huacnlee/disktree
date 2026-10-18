@@ -4,9 +4,15 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 
+[features]
+default = ["development"]
+development = ["dep:nsh-bundler", "dep:nsh-ui-mobile"]
+
 [dependencies]
 serde_json = "1"
 log = "0.4"
+nsh-bundler = { git = "https://github.com/longbridge/nsh.git", branch = "main", default-features = false, features = ["bundle"], optional = true }
+nsh-ui-mobile = { git = "https://github.com/longbridge/nsh.git", branch = "main", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nsh-platform-macos = { git = "https://github.com/longbridge/nsh.git", branch = "main" }

@@ -74,15 +74,15 @@ The last directory is saved in `~/Library/Application Support/Disktree/state.jso
 
 ## Development
 
-Install [nsh](https://github.com/longbridge/nsh) and Python 3, then start both the scanner and development host:
+Install Rust and Python 3, then start the native application from the repository root:
 
 ```sh
-./scripts/run.sh
+cargo run
 ```
 
-Running `nsh run` alone does not start the scanner. The script manages both processes. Packaged applications start their own scanner automatically.
+The Rust launcher compiles the current TSX sources, starts the Python scanner, and opens the native window. The scanner stops when the application exits. Run again to load source changes. Set `PYTHON` to select a Python executable, such as `PYTHON=.venv/bin/python cargo run`. `scripts/run.sh` forwards to the same command.
 
-The native launcher depends on NSH's Git `main` branch. Cargo records the resolved commit in `native/Cargo.lock`; update it with `cargo update --manifest-path native/Cargo.toml -p nsh-platform-macos -p nsh-platform-linux`. Desktop hover events are included in NSH.
+The native launcher depends on NSH's Git `main` branch. Cargo records the resolved commit in `Cargo.lock`; update it with `cargo update -p nsh-platform-macos -p nsh-platform-linux -p nsh-bundler -p nsh-ui-mobile`. Desktop hover events are included in NSH.
 
 Build a self-contained application with Rust, Python 3.11+, and Xcode Command Line Tools on macOS, or `clang libclang-dev libgtk-4-dev` on Linux:
 
@@ -102,7 +102,7 @@ python3 scripts/stress_memory.py 650000 6
 nsh check
 ```
 
-`connection.ts` is generated locally and is not committed. Before running a standalone type check, copy `connection.example.ts` to `connection.ts` if the generated file does not exist.
+Both development and packaged launches inject a fresh authenticated scanner connection before loading the UI. The NSH CLI is used for standalone type checks and release packaging.
 
 ## Releases
 
