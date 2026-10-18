@@ -142,6 +142,10 @@ fn absolute(path: &str) -> Result<PathBuf> {
     }
     Ok(clean)
 }
+// statvfs block counts are u32 on macOS and u64 on Linux.
+fn block_bytes(count: impl Into<u64>, block: u64) -> u64 {
+    count.into().saturating_mul(block)
+}
 fn disk_usage(path: &Path) -> Result<(u64, u64)> {
     let name = CString::new(path.as_os_str().as_bytes()).map_err(io)?;
     let mut data = std::mem::MaybeUninit::<libc::statvfs>::uninit();
@@ -152,8 +156,8 @@ fn disk_usage(path: &Path) -> Result<(u64, u64)> {
     let data = unsafe { data.assume_init() };
     let block = data.f_frsize;
     Ok((
-        data.f_blocks.saturating_mul(block),
-        data.f_bavail.saturating_mul(block),
+        block_bytes(data.f_blocks, block),
+        block_bytes(data.f_bavail, block),
     ))
 }
 fn cloud_only(_m: &Metadata) -> bool {

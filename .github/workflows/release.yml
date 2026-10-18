@@ -22,8 +22,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build/cargo
-      TMPDIR: ${{ runner.temp }}/disktree-tmp
+      TMPDIR: ${{ github.workspace }}/../disktree-tmp
     steps:
+      - name: Prepare scratch directory
+        run: mkdir -p "$TMPDIR"
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -39,8 +41,6 @@ jobs:
             ~/.cargo/git
             .build/cargo
           key: release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'scripts/nsh_toolchain.py') }}
-      - name: Prepare scratch directory
-        run: mkdir -p "$TMPDIR"
       - name: Installer regression tests
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Build native package

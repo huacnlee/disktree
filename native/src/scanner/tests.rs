@@ -317,3 +317,12 @@ fn large_index_keeps_query_payload_bounded() {
         1
     );
 }
+
+#[test]
+fn disk_block_counts_widen_before_multiplication() {
+    assert_eq!(block_bytes(u32::MAX, 4096), u64::from(u32::MAX) * 4096);
+    assert_eq!(
+        block_bytes(u64::from(u32::MAX) + 1, 4096),
+        (u64::from(u32::MAX) + 1) * 4096
+    );
+}
