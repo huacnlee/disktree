@@ -24,11 +24,6 @@ jobs:
       CARGO_TARGET_DIR: ${{ github.workspace }}/.build/cargo
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: longbridge/native-shell
-          ref: 6d62ee0efdc1466337ce5a6a1a02e5aa456dc71c
-          path: .runtime-source
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -42,7 +37,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             .build/cargo
-          key: release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock', 'patches/nsh-hover.patch') }}
+          key: release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/Cargo.lock') }}
       - name: Install packaging tools
         run: python -m pip install pyinstaller==6.16.0
       - name: Scanner regression tests

@@ -74,7 +74,7 @@ The last directory is saved in `~/Library/Application Support/Disktree/state.jso
 
 ## Development
 
-Install [nsh](https://github.com/longbridge/native-shell) and Python 3, then start both the scanner and development host:
+Install [nsh](https://github.com/longbridge/nsh) and Python 3, then start both the scanner and development host:
 
 ```sh
 ./scripts/run.sh
@@ -82,7 +82,7 @@ Install [nsh](https://github.com/longbridge/native-shell) and Python 3, then sta
 
 Running `nsh run` alone does not start the scanner. The script manages both processes. Packaged applications start their own scanner automatically.
 
-Desktop hover events currently require `patches/nsh-hover.patch`. Release builds apply it to the pinned nsh revision. A development host must use the patched runtime to support pointer-based marking; an unmodified nsh installation still supports the other development features.
+The native launcher depends on NSH's Git `main` branch. Cargo records the resolved commit in `native/Cargo.lock`; update it with `cargo update --manifest-path native/Cargo.toml -p nsh-platform-macos -p nsh-platform-linux`. Desktop hover events are included in NSH.
 
 Build a self-contained application with Rust, Python 3.11+, and Xcode Command Line Tools on macOS, or `clang libclang-dev libgtk-4-dev` on Linux:
 
@@ -92,7 +92,7 @@ python3 -m venv .venv
 .venv/bin/python scripts/build-release.py --version 0.1.0
 ```
 
-The first build downloads the pinned nsh source. Archives are written to `dist/`. A thin Rust launcher starts the bundled scanner, reads its random port and authentication token, and injects the connection before loading the nsh JS bundle. Installation directories remain read-only.
+The first build downloads NSH through Cargo. The packaging script builds the CLI from the same Git checkout as the runtime. Archives are written to `dist/`. A thin Rust launcher starts the bundled scanner, reads its random port and authentication token, and injects the connection before loading the nsh JS bundle. Installation directories remain read-only.
 
 Checks:
 

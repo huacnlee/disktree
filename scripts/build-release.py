@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Build an installable, self-contained nsh app for the current platform."""
-import argparse, hashlib, os, platform, plistlib, shutil, subprocess, sys, tarfile
+import argparse, hashlib, json, os, platform, plistlib, shutil, subprocess, sys, tarfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
-RUNTIME_REV='6d62ee0efdc1466337ce5a6a1a02e5aa456dc71c'
 def run(*command,**kwargs):
     subprocess.run(command,cwd=ROOT,check=True,**kwargs)
 def main():
@@ -15,17 +14,10 @@ def main():
     system=platform.system()
     if system not in ('Darwin','Linux'):raise SystemExit('Build on macOS or Linux')
     target=f"{'aarch64' if platform.machine() in ('arm64','aarch64') else 'x86_64'}-{'apple-darwin' if system=='Darwin' else 'unknown-linux-gnu'}"
-    source=ROOT/'.runtime-source'
-    if not source.exists():
-        run('git','clone','--filter=blob:none','https://github.com/longbridge/native-shell.git',str(source))
-        run('git','-C',str(source),'checkout',RUNTIME_REV)
-    revision=subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'],text=True).strip()
-    if revision!=RUNTIME_REV:raise SystemExit('Unexpected nsh revision: '+revision)
-    patch=ROOT/'patches/nsh-hover.patch'
-    if subprocess.run(['git','-C',str(source),'apply','--check',str(patch)],capture_output=True).returncode==0:
-        run('git','-C',str(source),'apply',str(patch))
-    else:
-        run('git','-C',str(source),'apply','--reverse','--check',str(patch))
+    metadata=json.loads(subprocess.check_output(['cargo','metadata','--manifest-path',str(ROOT/'native/Cargo.toml'),'--format-version','1','--locked'],cwd=ROOT,text=True))
+    runtime=next(package for package in metadata['packages'] if package['name']=='nsh-platform-macos')
+    # Build the CLI from the same Git checkout Cargo selected for the runtime.
+    source=Path(runtime['manifest_path']).parents[2]
     build=ROOT/'.build'
     build.mkdir(exist_ok=True)
     cargo=Path(os.environ.get('CARGO_TARGET_DIR',str(build/'cargo'))).resolve()

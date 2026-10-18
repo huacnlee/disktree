@@ -1081,11 +1081,13 @@ dependencies = [
 
 [[package]]
 name = "nsh-animation"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#c714f0fbbf5a7eaffa16974ae3ae0b6e8e174901"
 
 [[package]]
 name = "nsh-core"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#c714f0fbbf5a7eaffa16974ae3ae0b6e8e174901"
 dependencies = [
  "log",
  "nsh-animation",
@@ -1099,7 +1101,8 @@ dependencies = [
 
 [[package]]
 name = "nsh-engine"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#c714f0fbbf5a7eaffa16974ae3ae0b6e8e174901"
 dependencies = [
  "crossbeam-channel",
  "libc",
@@ -1116,8 +1119,10 @@ dependencies = [
 
 [[package]]
 name = "nsh-js"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#c714f0fbbf5a7eaffa16974ae3ae0b6e8e174901"
 dependencies = [
+ "libc",
  "log",
  "nsh-animation",
  "nsh-core",
@@ -1131,7 +1136,8 @@ dependencies = [
 
 [[package]]
 name = "nsh-macros"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#c714f0fbbf5a7eaffa16974ae3ae0b6e8e174901"
 dependencies = [
  "imagesize",
  "proc-macro2",
@@ -1142,7 +1148,8 @@ dependencies = [
 
 [[package]]
 name = "nsh-package"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#c714f0fbbf5a7eaffa16974ae3ae0b6e8e174901"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -1156,7 +1163,8 @@ dependencies = [
 
 [[package]]
 name = "nsh-platform-linux"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#c714f0fbbf5a7eaffa16974ae3ae0b6e8e174901"
 dependencies = [
  "crossbeam-channel",
  "gtk4",
@@ -1176,7 +1184,8 @@ dependencies = [
 
 [[package]]
 name = "nsh-platform-macos"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#c714f0fbbf5a7eaffa16974ae3ae0b6e8e174901"
 dependencies = [
  "block2",
  "crossbeam-channel",
@@ -1202,7 +1211,8 @@ dependencies = [
 
 [[package]]
 name = "nsh-ui-mobile"
-version = "0.1.0"
+version = "0.1.1"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#c714f0fbbf5a7eaffa16974ae3ae0b6e8e174901"
 dependencies = [
  "nsh-core",
  "serde_json",
