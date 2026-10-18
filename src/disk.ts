@@ -44,13 +44,12 @@ export function tileColor(node: DiskNode, depth: number): string {
 export function mosaic(nodes: DiskNode[], width: number, height: number, metric: Metric, levels: number, zoom = 1): Tile[] {
   const result: Tile[] = [];
   function split(items: DiskNode[], x: number, y: number, w: number, h: number, depth: number) {
-    items = items.filter(n => n[metric] > 0).sort((a,b) => b[metric] - a[metric]);
     if (!items.length || w * zoom < 2 || h * zoom < 2) return;
     if (items.length === 1) {
       const node = items[0];
       result.push({ node, x, y, width: w, height: h, depth });
       if (depth < levels && node.children.length && w * zoom > 90 && h * zoom > 65)
-        split(node.children, x + 3 / zoom, y + 25 / zoom, w - 6 / zoom, h - 28 / zoom, depth + 1);
+        split(ordered(node.children), x + 3 / zoom, y + 25 / zoom, w - 6 / zoom, h - 28 / zoom, depth + 1);
       return;
     }
     const total = items.reduce((sum,n) => sum+n[metric],0);
@@ -65,6 +64,7 @@ export function mosaic(nodes: DiskNode[], width: number, height: number, metric:
       split(items.slice(index),x,y+h*ratio,w,h*(1-ratio),depth);
     }
   }
-  split(nodes,0,0,width,height,1);
+  function ordered(items:DiskNode[]) { return items.filter(n=>n[metric]>0).sort((a,b)=>b[metric]-a[metric]); }
+  split(ordered(nodes),0,0,width,height,1);
   return result;
 }

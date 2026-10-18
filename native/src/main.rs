@@ -1,21 +1,10 @@
-use std::{
-    io::{BufRead, BufReader},
-    path::PathBuf,
-    process::{Child, Command, ExitCode, Stdio},
-};
+use std::{path::PathBuf, process::ExitCode};
 
 #[cfg(target_os = "linux")]
 use nsh_platform_linux as platform;
 #[cfg(target_os = "macos")]
 use nsh_platform_macos as platform;
 
-struct Scanner(Child);
-impl Drop for Scanner {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
 fn resources() -> std::io::Result<PathBuf> {
     let exe = std::env::current_exe()?.canonicalize()?;
     #[cfg(target_os = "macos")]
@@ -32,31 +21,8 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
         return Ok(ExitCode::SUCCESS);
     }
     let root = resources()?;
-    let mut scanner = Scanner(
-        Command::new(root.join("scanner/disktree-scanner"))
-            .arg("--packaged")
-            .arg("--parent-pid")
-            .arg(std::process::id().to_string())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()?,
-    );
-    let mut line = String::new();
-    BufReader::new(scanner.0.stdout.take().unwrap()).read_line(&mut line)?;
-    let connection: serde_json::Value = serde_json::from_str(&line)?;
-    if connection
-        .get("token")
-        .and_then(|v| v.as_str())
-        .filter(|v| !v.is_empty())
-        .is_none()
-    {
-        return Err("scanner did not provide an authenticated connection".into());
-    }
-    let source = format!(
-        "globalThis.__DISKTREE_CONNECTION__={};\n{}",
-        serde_json::to_string(&connection)?,
-        std::fs::read_to_string(root.join("bundle.js"))?
-    );
+    let source = std::fs::read_to_string(root.join("bundle.js"))?;
+    platform::set_ui_sets(vec![disktree::__nsh_native_module()]);
     let mut options = platform::AppOptions {
         title: "Disktree".into(),
         size: (1280, 850),
@@ -73,7 +39,6 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
         platform::AppSource::Bundle(platform::Bundle::source(source)),
         options,
     );
-    drop(scanner);
     #[cfg(target_os = "macos")]
     return Ok(result);
     #[cfg(target_os = "linux")]

@@ -301,9 +301,11 @@ dependencies = [
 
 [[package]]
 name = "disktree"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "libc",
  "log",
+ "nsh-core",
  "nsh-platform-linux",
  "nsh-platform-macos",
  "serde_json",
@@ -1081,11 +1083,15 @@ dependencies = [
 
 [[package]]
 name = "nsh-animation"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0004eabd31751552aa5d6244b4f9234697b377add7fac969720c0eb17ead29a9"
 
 [[package]]
 name = "nsh-core"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4310862aabaecd04f931cce2f6d7bdb5cc923093c487e947ba4f4005a432483c"
 dependencies = [
  "log",
  "nsh-animation",
@@ -1099,7 +1105,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-engine"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11b24e6663c0e9e0f66cdd866648fe963b537657ac05b019d2cbd21a71e9ed56"
 dependencies = [
  "crossbeam-channel",
  "libc",
@@ -1116,8 +1124,11 @@ dependencies = [
 
 [[package]]
 name = "nsh-js"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b7fa797dbef110863e836c127d8b0ade1f6b34e4aa382aac4163b1153982c28"
 dependencies = [
+ "libc",
  "log",
  "nsh-animation",
  "nsh-core",
@@ -1131,7 +1142,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-macros"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3ed6a60044bc96f82ca037b7f8713df6285cbd672c01154cabc331f1f9b3538"
 dependencies = [
  "imagesize",
  "proc-macro2",
@@ -1142,7 +1155,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-package"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40b8761816ca6c314729611a3312f3224d6cf1e83d9d563bbf193ac71e159cf3"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -1156,7 +1171,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-platform-linux"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab14b6ba4549b12eff4960852785ce30334f5f0bcfd51501d2c07ddc472c4786"
 dependencies = [
  "crossbeam-channel",
  "gtk4",
@@ -1176,7 +1193,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-platform-macos"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c63efcf8123925eb4e6cbb92b85b4dc9cec20ddaf260b9f29cbc88e0c96b9d1a"
 dependencies = [
  "block2",
  "crossbeam-channel",
@@ -1202,7 +1221,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-ui-mobile"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6da57ee1b3c5361add6ce34f6722ed6fb12cd821a5339ec3dd2aefe80a7a0b6"
 dependencies = [
  "nsh-core",
  "serde_json",
