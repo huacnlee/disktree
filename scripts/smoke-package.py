@@ -1,11 +1,11 @@
 """Launch the actual packaged native app and reject runtime script failures."""
-import os, subprocess, tempfile
+import os, subprocess, tempfile, json
 from pathlib import Path
 root=Path(__file__).resolve().parent.parent
 packages=list((root/'.build').glob('disktree-*/disktree'))
 if len(packages)!=1:raise SystemExit(f'Expected one staged package, found {len(packages)}')
 with tempfile.TemporaryDirectory() as temporary:
-    environment={**os.environ,'DISKTREE_ROOT':str(root/'tests'),'DISKTREE_STATE':str(Path(temporary)/'state.json'),'DISKTREE_UI_SCRIPT':os.environ.get('DISKTREE_UI_SCRIPT','wait 3000; quit')}
+    environment={**os.environ,'DISKTREE_ROOT':str(root/'tests'),'DISKTREE_STATE':str(Path(temporary)/'state.json'),'DISKTREE_UI_SCRIPT':os.environ.get('DISKTREE_UI_SCRIPT','wait 5000; quit')}
     # Sidecars inherit stderr. A file avoids waiting on inherited pipe handles
     # after the native GUI process has already exited.
     with (Path(temporary)/'app.log').open('w+') as log:
@@ -17,4 +17,7 @@ with tempfile.TemporaryDirectory() as temporary:
         log.seek(0);output=log.read();print(output)
         if code or any(s in output.lower() for s in ['uncaught','out of memory','exceeded its budget','panicked at']):
             raise SystemExit('Packaged app smoke test failed')
-print('Packaged native app smoke test passed')
+    state=Path(temporary)/'state.json'
+    if not state.is_file() or json.loads(state.read_text()).get('directory')!=str(root/'tests'):
+        raise SystemExit('Packaged app did not complete its automatic scan through the Rust module')
+print('Packaged native app smoke test passed (in-process Rust scanner completed startup scan)')

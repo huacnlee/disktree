@@ -1,35 +1,36 @@
 #!/usr/bin/env python3
 """Build an installable, self-contained nsh app for the current platform."""
-import argparse, hashlib, json, os, platform, plistlib, shutil, subprocess, sys, tarfile
+import argparse, hashlib, os, platform, plistlib, shutil, subprocess, sys, tarfile
 from pathlib import Path
+from nsh_toolchain import prepare
 
 ROOT=Path(__file__).resolve().parent.parent
 def run(*command,**kwargs):
     subprocess.run(command,cwd=ROOT,check=True,**kwargs)
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('--version',default='0.1.0')
+    parser.add_argument('--version',default='0.1.1')
     args=parser.parse_args()
     version=args.version.removeprefix('v')
     system=platform.system()
     if system not in ('Darwin','Linux'):raise SystemExit('Build on macOS or Linux')
     target=f"{'aarch64' if platform.machine() in ('arm64','aarch64') else 'x86_64'}-{'apple-darwin' if system=='Darwin' else 'unknown-linux-gnu'}"
-    metadata=json.loads(subprocess.check_output(['cargo','metadata','--manifest-path',str(ROOT/'native/Cargo.toml'),'--format-version','1','--locked'],cwd=ROOT,text=True))
-    runtime=next(package for package in metadata['packages'] if package['name']=='nsh-platform-macos')
-    # Build the CLI from the same Git checkout Cargo selected for the runtime.
-    source=Path(runtime['manifest_path']).parents[2]
+    toolchain=prepare()
+    source=Path(toolchain['NSH_SOURCE'])
     build=ROOT/'.build'
     build.mkdir(exist_ok=True)
     cargo=Path(os.environ.get('CARGO_TARGET_DIR',str(build/'cargo'))).resolve()
-    env={**os.environ,'CARGO_TARGET_DIR':str(cargo),'DISKTREE_VERSION':version}
+    env={**toolchain,'CARGO_TARGET_DIR':str(cargo),'DISKTREE_VERSION':version}
     nsh=os.environ.get('NSH')
     if not nsh:
         run('cargo','build','--manifest-path',str(source/'Cargo.toml'),'--release','--locked','-p','nsh-cli',env=env)
         nsh=str(cargo/'release/nsh')
-    run(nsh,'check')
-    run(nsh,'build')
-    run('cargo','build','--release','--locked','--no-default-features',env=env)
-    run(sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onedir','--name','disktree-scanner','--distpath',str(build/'scanner-dist'),'--workpath',str(build/'scanner-work'),'--specpath',str(build),str(ROOT/'scripts/service.py'))
+    actual=subprocess.check_output([nsh,'--version'],text=True).strip()
+    if actual != 'nsh '+toolchain['NSH_VERSION']:
+        raise SystemExit(f"Expected nsh {toolchain['NSH_VERSION']}, found {actual}")
+    run(nsh,'check',env=env)
+    run(nsh,'build','-o',str(build/'bundle'),env=env)
+    run('cargo','build','--manifest-path',str(ROOT/'native/Cargo.toml'),'--release','--locked','--no-default-features',env=env)
     stage=build/f'disktree-{version}-{target}'
     if stage.exists():shutil.rmtree(stage)
     stage.mkdir()
@@ -66,20 +67,12 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
         shutil.copy2(cargo/'release/disktree',stage/'disktree')
         (stage/'disktree.desktop').write_text('[Desktop Entry]\nType=Application\nName=Disktree\nComment=Explore disk space with a native treemap\nExec=disktree\nTerminal=false\nCategories=System;Utility;\nIcon=disktree\n')
     shutil.copy2(ROOT/'assets/icon.svg',resources/'icon.svg')
-    shutil.copy2(ROOT/'out/bundle.js',resources/'bundle.js')
-    shutil.copytree(build/'scanner-dist/disktree-scanner',resources/'scanner')
+    shutil.copy2(build/'bundle/bundle.js',resources/'bundle.js')
     shutil.copy2(ROOT/'LICENSE',stage/'LICENSE')
     shutil.copy2(source/'LICENSE-APACHE',stage/'LICENSE.nsh')
     if system=='Darwin':run('codesign','--force','--deep','--sign','-','--timestamp=none',str(stage/'Disktree.app'))
-    # Validate both the CLI wrapper and the embedded scanner, without opening a window.
+    # Validate the CLI wrapper before archiving; smoke-package checks native scanning.
     run(str(stage/'disktree'),'--version')
-    scanner=subprocess.Popen([str(resources/'scanner/disktree-scanner'),'--packaged'],stdout=subprocess.PIPE,text=True,env={**os.environ,'DISKTREE_STATE':str(build/'scanner-smoke-state.json')})
-    try:
-        import json,urllib.request
-        config=json.loads(scanner.stdout.readline())
-        request=urllib.request.Request(config['endpoint']+'/scan',data=json.dumps({'path':str(stage)}).encode(),headers={'Authorization':'Bearer '+config['token'],'Content-Type':'application/json'})
-        with urllib.request.urlopen(request,timeout=30) as response:assert json.load(response)['root']['files']>0
-    finally:scanner.terminate();scanner.wait(timeout=10)
     dist=ROOT/'dist';dist.mkdir(exist_ok=True)
     archive=dist/f'disktree-v{version}-{target}.tar.gz'
     with tarfile.open(archive,'w:gz') as tar:

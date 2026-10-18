@@ -1,21 +1,10 @@
-use std::{
-    io::{BufRead, BufReader},
-    path::PathBuf,
-    process::{Child, Command, ExitCode, Stdio},
-};
+use std::{path::PathBuf, process::ExitCode};
 
 #[cfg(target_os = "linux")]
 use nsh_platform_linux as platform;
 #[cfg(target_os = "macos")]
 use nsh_platform_macos as platform;
 
-struct Scanner(Child);
-impl Drop for Scanner {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
 #[cfg(not(feature = "development"))]
 fn resources() -> std::io::Result<PathBuf> {
     let exe = std::env::current_exe()?.canonicalize()?;
@@ -24,32 +13,24 @@ fn resources() -> std::io::Result<PathBuf> {
     #[cfg(target_os = "linux")]
     return Ok(exe.parent().unwrap().join("resources"));
 }
-
-fn app_source() -> Result<(Command, String), Box<dyn std::error::Error>> {
+fn app_source() -> Result<String, Box<dyn std::error::Error>> {
     #[cfg(feature = "development")]
     {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
             .to_path_buf();
-        let bundle = nsh_bundler::bundle(&nsh_bundler::BundleOptions {
+        Ok(nsh_bundler::bundle(&nsh_bundler::BundleOptions {
             entry: root.join("App.tsx"),
             minify: false,
             split: false,
-            ui_sets: vec![nsh_ui_mobile::registry()],
-        })?;
-        let mut scanner =
-            Command::new(std::env::var_os("PYTHON").unwrap_or_else(|| "python3".into()));
-        scanner.arg(root.join("scripts/service.py"));
-        Ok((scanner, bundle.code))
+            ui_sets: vec![disktree::__nsh_native_module()],
+        })?
+        .code)
     }
     #[cfg(not(feature = "development"))]
     {
-        let root = resources()?;
-        Ok((
-            Command::new(root.join("scanner/disktree-scanner")),
-            std::fs::read_to_string(root.join("bundle.js"))?,
-        ))
+        Ok(std::fs::read_to_string(resources()?.join("bundle.js"))?)
     }
 }
 
@@ -61,32 +42,8 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
         );
         return Ok(ExitCode::SUCCESS);
     }
-    let (mut scanner_command, bundle) = app_source()?;
-    let mut scanner = Scanner(
-        scanner_command
-            .arg("--packaged")
-            .arg("--parent-pid")
-            .arg(std::process::id().to_string())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()?,
-    );
-    let mut line = String::new();
-    BufReader::new(scanner.0.stdout.take().unwrap()).read_line(&mut line)?;
-    let connection: serde_json::Value = serde_json::from_str(&line)?;
-    if connection
-        .get("token")
-        .and_then(|v| v.as_str())
-        .filter(|v| !v.is_empty())
-        .is_none()
-    {
-        return Err("scanner did not provide an authenticated connection".into());
-    }
-    let source = format!(
-        "globalThis.__DISKTREE_CONNECTION__={};\n{}",
-        serde_json::to_string(&connection)?,
-        bundle
-    );
+    let source = app_source()?;
+    platform::set_ui_sets(vec![disktree::__nsh_native_module()]);
     let mut options = platform::AppOptions {
         title: "Disktree".into(),
         size: (1280, 850),
@@ -103,7 +60,6 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
         platform::AppSource::Bundle(platform::Bundle::source(source)),
         options,
     );
-    drop(scanner);
     #[cfg(target_os = "macos")]
     return Ok(result);
     #[cfg(target_os = "linux")]

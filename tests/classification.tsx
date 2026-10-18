@@ -1,5 +1,5 @@
 import { mount, Text } from 'nsh';
-import { kind, type DiskNode } from '../disk';
+import { kind, type DiskNode } from '../src/disk';
 function Test() {
   const cases = [
     ['/Users/jason/work/project/.git/objects','Git'],
