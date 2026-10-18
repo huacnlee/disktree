@@ -5,6 +5,7 @@ connection.ts
 __pycache__/
 .runtime-source
 native/target/
+target/
 dist/
 .build/
 .venv/

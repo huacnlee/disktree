@@ -1,0 +1,9 @@
+[workspace]
+members = ["native"]
+default-members = ["native"]
+resolver = "3"
+
+# Generated NSH CLI hosts patch registry dependencies to their own core.
+# Use the same Git core as the platforms for direct Cargo builds.
+[patch.crates-io]
+nsh-core = { git = "https://github.com/longbridge/nsh.git", branch = "main" }

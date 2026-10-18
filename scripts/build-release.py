@@ -2,7 +2,7 @@
 """Build an installable, self-contained nsh app for the current platform."""
 import argparse, hashlib, os, platform, plistlib, shutil, subprocess, sys, tarfile
 from pathlib import Path
-from nsh_toolchain import prepare, VERSION as NSH_VERSION
+from nsh_toolchain import prepare
 
 ROOT=Path(__file__).resolve().parent.parent
 def run(*command,**kwargs):
@@ -26,11 +26,11 @@ def main():
         run('cargo','build','--manifest-path',str(source/'Cargo.toml'),'--release','--locked','-p','nsh-cli',env=env)
         nsh=str(cargo/'release/nsh')
     actual=subprocess.check_output([nsh,'--version'],text=True).strip()
-    if actual != 'nsh '+NSH_VERSION:
-        raise SystemExit(f'Expected nsh {NSH_VERSION}, found {actual}')
+    if actual != 'nsh '+toolchain['NSH_VERSION']:
+        raise SystemExit(f"Expected nsh {toolchain['NSH_VERSION']}, found {actual}")
     run(nsh,'check',env=env)
     run(nsh,'build','-o',str(build/'bundle'),env=env)
-    run('cargo','build','--manifest-path',str(ROOT/'native/Cargo.toml'),'--release','--locked',env=env)
+    run('cargo','build','--manifest-path',str(ROOT/'native/Cargo.toml'),'--release','--locked','--no-default-features',env=env)
     stage=build/f'disktree-{version}-{target}'
     if stage.exists():shutil.rmtree(stage)
     stage.mkdir()

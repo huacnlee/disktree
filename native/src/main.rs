@@ -5,6 +5,7 @@ use nsh_platform_linux as platform;
 #[cfg(target_os = "macos")]
 use nsh_platform_macos as platform;
 
+#[cfg(not(feature = "development"))]
 fn resources() -> std::io::Result<PathBuf> {
     let exe = std::env::current_exe()?.canonicalize()?;
     #[cfg(target_os = "macos")]
@@ -12,6 +13,27 @@ fn resources() -> std::io::Result<PathBuf> {
     #[cfg(target_os = "linux")]
     return Ok(exe.parent().unwrap().join("resources"));
 }
+fn app_source() -> Result<String, Box<dyn std::error::Error>> {
+    #[cfg(feature = "development")]
+    {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        Ok(nsh_bundler::bundle(&nsh_bundler::BundleOptions {
+            entry: root.join("App.tsx"),
+            minify: false,
+            split: false,
+            ui_sets: vec![disktree::__nsh_native_module()],
+        })?
+        .code)
+    }
+    #[cfg(not(feature = "development"))]
+    {
+        Ok(std::fs::read_to_string(resources()?.join("bundle.js"))?)
+    }
+}
+
 fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
     if std::env::args().any(|arg| arg == "--version") {
         println!(
@@ -20,8 +42,7 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
         );
         return Ok(ExitCode::SUCCESS);
     }
-    let root = resources()?;
-    let source = std::fs::read_to_string(root.join("bundle.js"))?;
+    let source = app_source()?;
     platform::set_ui_sets(vec![disktree::__nsh_native_module()]);
     let mut options = platform::AppOptions {
         title: "Disktree".into(),

@@ -1,31 +1,30 @@
-"""The upstream release used by JSX tooling and native hosts (no local patches)."""
+"""Resolve JSX tooling from the same Git checkout as the native runtime."""
+import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = '0.1.1'
-REVISION = '85be2a2e34ab4879acfa74bde3c5bbdc3cc737d0'
-SOURCE = ROOT / '.runtime-source'
 TARGET = ROOT / '.build/cargo'
 
 def prepare():
-    TARGET.mkdir(parents=True, exist_ok=True)
-    if not SOURCE.exists():
-        subprocess.run(['git', 'clone', '--filter=blob:none', '--branch', 'v'+VERSION,
-                        'https://github.com/longbridge/nsh.git', str(SOURCE)], check=True)
-    revision = subprocess.check_output(['git', '-C', str(SOURCE), 'rev-parse', 'HEAD'], text=True).strip()
-    if revision != REVISION:
-        raise SystemExit(f'{SOURCE} must be the clean upstream nsh v{VERSION} ({REVISION}); found {revision}')
-    if subprocess.check_output(['git','-C',str(SOURCE),'status','--porcelain','--untracked-files=no'],text=True).strip():
-        raise SystemExit('The nsh checkout has local changes; this project uses unmodified upstream releases')
-    # nsh's custom-host builder uses its source checkout's target directory.
-    if not (SOURCE / 'target').exists():
-        (SOURCE / 'target').symlink_to(TARGET, target_is_directory=True)
-    return {**os.environ, 'NSH_SOURCE':str(SOURCE), 'CARGO_TARGET_DIR':str(TARGET)}
+    target = Path(os.environ.get('CARGO_TARGET_DIR', str(TARGET))).resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    metadata = json.loads(subprocess.check_output(
+        ['cargo', 'metadata', '--manifest-path', str(ROOT / 'Cargo.toml'),
+         '--format-version', '1', '--locked'], cwd=ROOT, text=True))
+    runtime = next(package for package in metadata['packages']
+                   if package['name'] == 'nsh-platform-macos')
+    source = Path(runtime['manifest_path']).parents[2]
+    # NSH's generated custom hosts use the source checkout's target directory.
+    if not (source / 'target').exists():
+        (source / 'target').symlink_to(target, target_is_directory=True)
+    return {**os.environ, 'NSH_SOURCE': str(source),
+            'NSH_VERSION': runtime['version'], 'CARGO_TARGET_DIR': str(target)}
 
 if __name__ == '__main__':
-    prepare()
-    print(f'Prepared upstream nsh {VERSION}. Set this once in your development shell:')
-    print(f'export NSH_SOURCE="{SOURCE}"')
-    print('Then run: nsh run')
+    environment = prepare()
+    if len(sys.argv) > 1:
+        raise SystemExit(subprocess.run(sys.argv[1:], env=environment, cwd=ROOT).returncode)
+    print(f"NSH_SOURCE={environment['NSH_SOURCE']}")

@@ -88,17 +88,15 @@ The last directory is saved in `~/Library/Application Support/Disktree/state.jso
 
 The project uses nsh 0.1.1's **Rust + JSX** mode. `src/` owns the interface; `native/src/lib.rs` exports `disktree/native`, and `native/src/scanner.rs` implements scanning, bounded directory queries, persistence, and cleanup. JSX calls `Scanner.request()` directly. Filesystem work runs on Rust background threads in the same process: no Python service, loopback HTTP server, generated connection file, or hover patch.
 
-Install [nsh 0.1.1](https://github.com/longbridge/nsh/releases/tag/v0.1.1), Rust and the platform build libraries listed below. Python 3 is used only for the setup/packaging convenience tools, never for application runtime. nsh 0.1.1's custom Rust hosts require an upstream source checkout (`NSH_SOURCE`); prepare the pinned, unmodified release once:
+Install Rust and the platform build libraries listed below, then run from the repository root:
 
 ```sh
-python3 scripts/nsh_toolchain.py
-export NSH_SOURCE="$PWD/.runtime-source"
-nsh run
+cargo run
 ```
 
-After setting `NSH_SOURCE` in the development shell, `nsh run` starts the native host with its in-process scanner. No separate backend process is started. `./scripts/run.sh` remains a convenience wrapper for preparation and environment setup; it accepts the same arguments as `nsh run`.
+The Rust launcher compiles the current TSX sources and opens the native window with the in-process scanner. Run again to load source changes. `./scripts/run.sh` forwards to the same command. Development and installed applications use the same native module; Python is used only for test and packaging tools.
 
-JSX edits hot reload; changes to the Rust module rebuild the custom host. The first run compiles the app's CLI and host. Cargo artifacts stay in `.build/cargo/`. Rust capabilities use published `nsh-core` / platform crates pinned to `=0.1.1`; `native/Cargo.lock` locks their dependencies.
+NSH dependencies follow Git `main`, with the resolved commit recorded in the root `Cargo.lock`. The optional NSH CLI workflow supports JSX hot reload and rebuilds the host on Rust changes. To use it, install the matching NSH CLI and run `python3 scripts/nsh_toolchain.py nsh run`; the helper resolves the source checkout through Cargo and sets `NSH_SOURCE` for the command.
 
 Build a self-contained application with Rust, Python 3.11+ (packaging tools only), and Xcode Command Line Tools on macOS, or `clang libclang-dev libgtk-4-dev` on Linux:
 
@@ -106,7 +104,7 @@ Build a self-contained application with Rust, Python 3.11+ (packaging tools only
 python3 scripts/build-release.py --version 0.1.1
 ```
 
-The first build downloads the pinned upstream nsh 0.1.1 source and builds the matching CLI. Archives are written to `dist/`. The packaged Rust host registers the same in-process native module as the development host. Installation directories remain read-only.
+The first build downloads NSH through Cargo and builds the matching CLI from the runtime’s Git checkout. Release builds disable the development bundler and load the packaged bundle. Archives are written to `dist/`. The packaged Rust host registers the same in-process native module as the development host. Installation directories remain read-only.
 
 Checks:
 
@@ -116,13 +114,13 @@ export TMPDIR="$HOME/.cache/nsh-disktree-test-tmp"
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 CARGO_TARGET_DIR="$PWD/.build/cargo" cargo test --manifest-path native/Cargo.toml --lib --locked
 CARGO_TARGET_DIR="$PWD/.build/cargo" cargo test --manifest-path native/Cargo.toml --lib --locked -- --ignored
-CARGO_TARGET_DIR="$PWD/.build/cargo" cargo test --manifest-path native/Cargo.toml --test ui --locked -- --ignored
-nsh check
+python3 scripts/nsh_toolchain.py cargo test --manifest-path native/Cargo.toml --test ui --locked -- --ignored
+python3 scripts/nsh_toolchain.py nsh check
 ```
 
 The UI check uses isolated fixture files; it opens and cancels the system Trash confirmation, and never empties your system Trash. Rust tests check system Trash command arguments without executing them. Test logs are written under `target/agents/`. Set `TMPDIR` to a writable directory outside the checkout when running Python unit tests.
 
-When upgrading nsh, update `VERSION` / `REVISION` in `scripts/nsh_toolchain.py` and the exact nsh dependency versions in `native/Cargo.toml`, regenerate `native/Cargo.lock`, then run the checks and packaged-window smoke test. The upstream checkout is never patched; replace an old `.runtime-source` checkout when changing the pin.
+To update NSH, run `cargo update -p nsh-platform-macos -p nsh-platform-linux -p nsh-bundler -p nsh-core`, then run the checks and packaged-window smoke test. Cargo keeps the runtime and bundler on the same Git revision; the toolchain helper uses that checkout for the CLI.
 
 ## Releases
 
