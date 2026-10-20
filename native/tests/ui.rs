@@ -58,9 +58,10 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
         "Edit folder path",
         "Edit folder path",
         "victim.bin",
-        "Delete permanently",
+        "Mark / unmark",
+        "Delete marked permanently",
         "Back to explorer",
-        "Delete permanently",
+        "Delete marked permanently",
         "Confirm permanent deletion",
         "folder",
         "Open folder",
@@ -71,13 +72,18 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
         "keep.bin",
         "Mark / unmark",
         "Review marked items →",
+        "Delete permanently",
         "Back to explorer",
         "Delete marked permanently",
         "Back to explorer",
         "Empty Trash",
         "Back to explorer",
+        "keep.bin",
+        "Mark / unmark",
         "folder",
         "Open folder",
+        "Mark / unmark",
+        "Review marked items →",
         "Delete permanently",
         "Confirm permanent deletion",
     ];
@@ -109,6 +115,7 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
         &log[log.len().saturating_sub(4000)..]
     );
     assert!(log.contains("Scan complete"));
+    assert!(log.contains("Scanning folders"));
     assert!(log.contains("Updating disk usage…"));
     assert!(!victim.exists());
     assert!(!folder.exists());

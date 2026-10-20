@@ -855,6 +855,8 @@ dependencies = [
  "nsh-core",
  "nsh-platform-linux",
  "nsh-platform-macos",
+ "rustc-hash",
+ "rustix",
  "serde_json",
 ]
 

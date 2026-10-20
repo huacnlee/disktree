@@ -3,6 +3,10 @@ members = ["native"]
 default-members = ["native"]
 resolver = "3"
 
+# Keep filesystem scanning fast when launching with `cargo run` too.
+[profile.dev.package.disktree]
+opt-level = 3
+
 # Generated NSH CLI hosts patch registry dependencies to their own core.
 # Use the same Git core as the platforms for direct Cargo builds.
 [patch.crates-io]

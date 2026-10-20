@@ -22,6 +22,31 @@ function App() {
   const draftPath=signal('');
   const query = signal('');
   const busy = signal(false);
+  const scanProgress = signal<{path:string;directories:number;files:number;bytes:number;errors:number} | null>(null);
+  const scanSeconds = signal(0);
+  let stopScanProgress: (()=>void) | undefined;
+  cleanup(()=>stopScanProgress?.());
+  async function scanWithProgress(target:string):Promise<Snapshot> {
+    const started = Date.now();
+    const progressToken = `${started}-${++scanSequence}`;
+    let stopped = false;
+    let timer:ReturnType<typeof setTimeout> | undefined;
+    const stop = ()=>{stopped=true;if(timer!==undefined)clearTimeout(timer);scanProgress.set(null);};
+    stopScanProgress?.();stopScanProgress=stop;
+    batch(()=>{scanSeconds.set(0);scanProgress.set({path:target || 'Opening saved folder…',directories:0,files:0,bytes:0,errors:0});});
+    async function poll() {
+      try {
+        const progress = await request('/scan-progress',{progressToken});
+        if(stopped)return;
+        batch(()=>{if(progress)scanProgress.set(progress);scanSeconds.set(Math.floor((Date.now()-started)/1000));});
+      } catch { /* A progress update must not interrupt the scan. */ }
+      if(!stopped)timer=setTimeout(()=>void poll(),200);
+    }
+    timer=setTimeout(()=>void poll(),100);
+    try { return await request('/scan',{path:target,progressToken}); }
+    finally { stop();if(stopScanProgress===stop)stopScanProgress=undefined; }
+  }
+  let scanSequence = 0;
   const message = signal('Choose a folder to discover what fills your disk.');
   const hidden = signal(true);
   const metric = signal<Metric>('size');
@@ -88,7 +113,7 @@ function App() {
     browseBusy.set(false);
     busy.set(true); message.set('Scanning… large folders may take a moment.');
     try {
-      const data: Snapshot = await request('/scan', { path: target });
+      const data: Snapshot = await scanWithProgress(target);
       if (run !== generation) return;
       batch(()=>{listing.set(null);snapshot.set(data);current.set(data.root);selection.set(data.root);marked.set([]);review.set(false);path.set(data.root.path);directoryPath.set(restoreFolder || data.root.path);page.set(0);query.set('');});
       message.set((data.errorCount || data.errors.length) ? `${data.errorCount || data.errors.length} unreadable or skipped paths. Scan totals exclude these items.` : 'Scan complete · symbolic links and other volumes are not followed.');
@@ -177,7 +202,7 @@ function App() {
       // busy until both fresh disk totals and the current directory have arrived.
       batch(()=>{review.set(false);reviewed.set([]);marked.set([]);listing.set(null);snapshot.set(null);current.set(null);selection.set(null);hovered.set(new Map());});
       message.set('Updating disk usage…');
-      const data:Snapshot=await request('/scan',{path:scanRoot});
+      const data:Snapshot=await scanWithProgress(scanRoot);
       const updated:DirectoryView=await request('/view',{...parameters,id:data.id,fallback:true});
       loadedViewKey=JSON.stringify({...parameters,id:data.id,path:updated.node.path,offset:updated.offset});
       batch(()=>{snapshot.set(data);listing.set(updated);current.set(updated.node);selection.set(updated.node);path.set(updated.node.path);directoryPath.set(updated.node.path);page.set(updated.offset);});
@@ -204,6 +229,15 @@ function App() {
       <Button label={hidden()?'Hidden: on':'Hidden: off'} action={()=>batch(()=>{hidden.update(v=>!v);page.set(0);})}/>
       <Button label={`Depth ${levels()}`} action={()=>{levels.set(levels()===3?1:levels()+1);}}/>
     </View>
+    <If when={scanProgress()}>
+      <View style={{paddingHorizontal:16,paddingVertical:12,gap:5,borderBottomWidth:1,borderColor:C.line,backgroundColor:'#141416'}}>
+        <View style={{flexDirection:'row',gap:16,alignItems:'center'}}>
+          <Text style={{fontFamily:mono,fontSize:12,color:C.amber}}>Scanning folders</Text>
+          <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{scanProgress()!.directories.toLocaleString()} folders · {scanProgress()!.files.toLocaleString()} files · {formatSize(scanProgress()!.bytes)} found · {scanSeconds()}s elapsed{scanProgress()!.errors?` · ${scanProgress()!.errors} skipped`:''}</Text>
+        </View>
+        <Text numberOfLines={1} ellipsizeMode="middle" style={{fontFamily:mono,fontSize:12,color:C.text}}>{scanProgress()!.path}</Text>
+      </View>
+    </If>
     <View style={{height:2,overflow:'hidden',backgroundColor:busy()?C.line:'transparent'}}>
       <If when={busy()}><View style={{height:2,width:reduceMotion()?'100%':'28%',backgroundColor:C.amber,transform:[{translateX:sweep.interpolate({inputRange:[0,1],outputRange:[-300,1500]})}]}}/></If>
     </View>
@@ -247,13 +281,13 @@ function App() {
               <View style={{flexDirection:'row',gap:16}}><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>OF SCAN</Text><Text style={{fontFamily:mono,fontSize:15,color:C.text}}>{((selection()?.size || 0)/(snapshot()?.root.size || 1)*100).toFixed(1)}%</Text></View><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>FILES</Text><Text style={{fontFamily:mono,fontSize:15,color:C.text}}>{(selection()?.files || 0).toLocaleString()}</Text></View></View>
               <View style={{flexDirection:'row',gap:16}}><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>MODIFIED</Text><Text style={{fontFamily:mono,fontSize:12,color:C.text}}>{selection()?new Date(selection()!.modified*1000).toLocaleDateString():'—'}</Text></View><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>KIND</Text><Text style={{fontFamily:mono,fontSize:12,color:C.text}}>{selection()?kind(selection()!).label:'—'}</Text></View></View>
               <View style={{flexDirection:'row',gap:6}}><Button label="Open folder" action={()=>{if(selection())enter(selection()!);}}/><Button label="Mark / unmark" action={()=>toggleMark(selection())}/></View>
-              <Button label="Delete permanently" danger disabled={!selection() || selection()?.aggregate || selection()?.path===snapshot()?.root.path || busy() || browseBusy()} action={()=>{if(selection())beginReview('delete',[selection()!]);}}/>
             </If>
             <If when={review()}>
               <Text style={{fontFamily:mono,fontSize:15,color:C.text}}>{removal()==='empty'?'Empty the system Trash?':removal()==='delete'?'Permanently delete these items?':'Move these items to Trash?'}</Text>
               <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{removal()==='trash'?'Recoverable from the system Trash.': 'This permanently removes files and cannot be undone.'}</Text>
               <Each of={removal()==='empty'?[]:reviewed()}>{node=><View style={{gap:7,paddingVertical:6}}><Text style={{fontFamily:mono,fontSize:11,color:C.text}}>{node().path}</Text><Button label={`Exclude · ${formatSize(node().size)}`} action={()=>{if(!busy()){reviewed.set(reviewed().filter(n=>n.path!==node().path));}}}/></View>}</Each>
               <Button label={busy()?'Working…':removal()==='empty'?'Confirm empty Trash':removal()==='delete'?'Confirm permanent deletion':'Confirm move to Trash'} action={()=>void commit()} danger={removal()!=='trash'} active={removal()==='trash'} disabled={busy() || browseBusy() || (removal()!=='empty' && !reviewed().length)}/>
+              <If when={removal()==='trash'}><Button label="Delete permanently" danger disabled={busy() || browseBusy() || !reviewed().length} action={()=>removal.set('delete')}/></If>
               <Button label="Back to explorer" disabled={busy()} action={()=>review.set(false)}/>
             </If>
             <View style={{height:1,backgroundColor:C.line}}/>

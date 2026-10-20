@@ -286,12 +286,14 @@ fn large_index_keeps_query_payload_bounded() {
     });
     let index = Index {
         id: "stress".into(),
-        nodes: HashMap::from([
+        nodes: [
             (root.path.clone(), root.clone()),
             (folder.path.clone(), folder.clone()),
-        ]),
+        ]
+        .into_iter()
+        .collect(),
         root,
-        records: HashMap::new(),
+        records: HashMap::default(),
     };
     for (offset, metric) in [(0, "size"), (80, "files"), (160, "apparent")] {
         let result = view(
@@ -325,4 +327,169 @@ fn disk_block_counts_widen_before_multiplication() {
         block_bytes(u64::from(u32::MAX) + 1, 4096),
         (u64::from(u32::MAX) + 1) * 4096
     );
+}
+
+#[test]
+fn scan_progress_reports_directories_files_and_deduplicated_bytes() {
+    let fixture = Fixture::new();
+    let original = fixture.file("first/nested/data.bin");
+    fs::hard_link(&original, fixture.0.join("alias.bin")).unwrap();
+    std::os::unix::fs::symlink(&fixture.0, fixture.0.join("link")).unwrap();
+    let progress = Arc::new(Mutex::new(Value::Null));
+    let (index, _) = scan_with_progress(&fixture.0, Some(progress.clone())).unwrap();
+    let value = progress.lock().unwrap();
+    assert_eq!(value["directories"], 3);
+    assert_eq!(value["files"], 2);
+    assert_eq!(value["bytes"], index.root.size);
+    assert_eq!(value["errors"], 0);
+    let current = Path::new(value["path"].as_str().unwrap());
+    assert!(current.is_dir());
+    assert!(current.starts_with(&fixture.0));
+    assert!(value.to_string().len() < 1024);
+}
+
+#[test]
+#[ignore = "filesystem timing benchmark; set DISKTREE_BENCH_ROOT to an existing directory"]
+fn scan_benchmark() {
+    let fixture = Fixture::new();
+    let root = match std::env::var_os("DISKTREE_BENCH_ROOT") {
+        Some(path) => PathBuf::from(path),
+        None => {
+            for directory in 0..64 {
+                let folder = fixture.0.join(format!("dir-{directory}"));
+                fs::create_dir(&folder).unwrap();
+                for file in 0..256 {
+                    fs::write(folder.join(format!("file-{file}")), []).unwrap();
+                }
+            }
+            fixture.0.clone()
+        }
+    };
+    let mut serial = Vec::new();
+    let mut parallel = Vec::new();
+    for iteration in 0..4 {
+        for workers in if iteration % 2 == 0 { [1, 4] } else { [4, 1] } {
+            let started = Instant::now();
+            let bulk = std::env::var_os("DISKTREE_BENCH_STANDARD").is_none();
+            let (index, _) = scan_with_reader(&root, None, workers, bulk).unwrap();
+            let elapsed = started.elapsed();
+            eprintln!(
+                "scan benchmark {iteration}, {workers} workers: {elapsed:?}, {} entries, {} files, {} bytes",
+                index.nodes.len(),
+                index.root.files,
+                index.root.size
+            );
+            if iteration > 0 {
+                if workers == 1 {
+                    serial.push(elapsed);
+                } else {
+                    parallel.push(elapsed);
+                }
+            }
+        }
+    }
+    serial.sort();
+    parallel.sort();
+    eprintln!(
+        "median: serial {:?}, parallel {:?}, speedup {:.2}x",
+        serial[1],
+        parallel[1],
+        serial[1].as_secs_f64() / parallel[1].as_secs_f64()
+    );
+}
+
+#[test]
+fn parallel_scan_preserves_index_and_removal_validation() {
+    let fixture = Fixture::new();
+    for directory in 0..160 {
+        for file in 0..3 {
+            fixture.file(&format!("branch-{directory}/nested/file-{file}"));
+        }
+    }
+    let original = fixture.0.join("branch-0/nested/file-0");
+    fs::hard_link(&original, fixture.0.join("branch-23/alias")).unwrap();
+    std::os::unix::fs::symlink(&fixture.0, fixture.0.join("cycle")).unwrap();
+    // Invalid UTF-8 must be reported and skipped, without abandoning siblings.
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        fs::write(fixture.0.join(std::ffi::OsString::from_vec(vec![0xff])), []).unwrap();
+    }
+    let (serial, serial_response) = scan_with_workers(&fixture.0, None, 1).unwrap();
+    for _ in 0..3 {
+        let progress = Arc::new(Mutex::new(Value::Null));
+        let (parallel, response) =
+            scan_with_workers(&fixture.0, Some(progress.clone()), 4).unwrap();
+        assert_eq!(parallel.root.size, serial.root.size);
+        assert_eq!(parallel.root.apparent, serial.root.apparent);
+        assert_eq!(parallel.root.files, serial.root.files);
+        assert_eq!(parallel.records, serial.records);
+        assert_eq!(parallel.nodes.len(), serial.nodes.len());
+        assert_eq!(response["errorCount"], serial_response["errorCount"]);
+        assert_eq!(
+            response["errorCount"],
+            usize::from(cfg!(target_os = "linux"))
+        );
+        assert_eq!(progress.lock().unwrap()["files"], parallel.root.files);
+        assert!(
+            parallel.nodes[fixture.0.join("cycle").to_str().unwrap()]
+                .children
+                .is_empty()
+        );
+        for node in parallel.nodes.values().filter(|node| node.directory) {
+            assert_eq!(
+                node.size,
+                node.children.iter().map(|child| child.size).sum::<u64>()
+            );
+            assert!(
+                node.children
+                    .windows(2)
+                    .all(|pair| pair[0].size >= pair[1].size)
+            );
+        }
+        let victim = fixture.0.join("branch-1");
+        validate_removal(&parallel, &[victim.to_string_lossy().into_owned()], true).unwrap();
+    }
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn bulk_and_stat_scans_preserve_exact_records_and_sizes() {
+    let fixture = Fixture::new();
+    for directory in 0..4 {
+        for file in 0..140 {
+            fixture.file(&format!("branch-{directory}/file-{file}"));
+        }
+    }
+    let sparse = fixture.0.join("sparse");
+    fs::File::create(&sparse)
+        .unwrap()
+        .set_len(16 << 20)
+        .unwrap();
+    fs::hard_link(&sparse, fixture.0.join("sparse-alias")).unwrap();
+    std::os::unix::fs::symlink(&fixture.0, fixture.0.join("cycle")).unwrap();
+    let precise = fixture.0.join("branch-0/file-0");
+    fs::File::options()
+        .write(true)
+        .open(&precise)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH + Duration::new(1_700_000_000, 123_456_789))
+        .unwrap();
+    let (standard, _) = scan_with_reader(&fixture.0, None, 4, false).unwrap();
+    let (bulk, _) = scan_with_reader(&fixture.0, None, 4, true).unwrap();
+    assert_eq!(standard.records, bulk.records);
+    assert_eq!(bulk.records[precise.to_str().unwrap()].nanos, 123_456_789);
+    assert_eq!(standard.root.size, bulk.root.size);
+    assert_eq!(standard.root.apparent, bulk.root.apparent);
+    assert_eq!(standard.root.files, bulk.root.files);
+    assert_eq!(standard.nodes.len(), bulk.nodes.len());
+    validate_removal(&bulk, &[precise.to_string_lossy().into_owned()], true).unwrap();
+    // A same-size replacement in the same second must still fail validation.
+    fs::File::options()
+        .write(true)
+        .open(&precise)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH + Duration::new(1_700_000_000, 987_654_321))
+        .unwrap();
+    assert!(validate_removal(&bulk, &[precise.to_string_lossy().into_owned()], true).is_err());
 }
