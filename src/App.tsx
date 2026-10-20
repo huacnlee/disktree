@@ -1,5 +1,5 @@
 import { mount, signal, computed, effect, cleanup, batch, View, Text, Input, Scroll, type YNode } from 'nsh';
-import { Animated, createNativeValue } from 'nsh/animated';
+import { Animated, createAnimatedValue } from 'nsh/animated';
 import { reduceMotion } from 'nsh/accessibility';
 import { Window, titleBar } from 'nsh/desktop';
 import { keymap } from 'nsh/keymap';
@@ -22,6 +22,31 @@ function App() {
   const draftPath=signal('');
   const query = signal('');
   const busy = signal(false);
+  const scanProgress = signal<{path:string;directories:number;files:number;bytes:number;errors:number} | null>(null);
+  const scanSeconds = signal(0);
+  let stopScanProgress: (()=>void) | undefined;
+  cleanup(()=>stopScanProgress?.());
+  async function scanWithProgress(target:string):Promise<Snapshot> {
+    const started = Date.now();
+    const progressToken = `${started}-${++scanSequence}`;
+    let stopped = false;
+    let timer:ReturnType<typeof setTimeout> | undefined;
+    const stop = ()=>{stopped=true;if(timer!==undefined)clearTimeout(timer);scanProgress.set(null);};
+    stopScanProgress?.();stopScanProgress=stop;
+    batch(()=>{scanSeconds.set(0);scanProgress.set({path:target || 'Opening saved folder…',directories:0,files:0,bytes:0,errors:0});});
+    async function poll() {
+      try {
+        const progress = await request('/scan-progress',{progressToken});
+        if(stopped)return;
+        batch(()=>{if(progress)scanProgress.set(progress);scanSeconds.set(Math.floor((Date.now()-started)/1000));});
+      } catch { /* A progress update must not interrupt the scan. */ }
+      if(!stopped)timer=setTimeout(()=>void poll(),200);
+    }
+    timer=setTimeout(()=>void poll(),100);
+    try { return await request('/scan',{path:target,progressToken}); }
+    finally { stop();if(stopScanProgress===stop)stopScanProgress=undefined; }
+  }
+  let scanSequence = 0;
   const message = signal('Choose a folder to discover what fills your disk.');
   const hidden = signal(true);
   const metric = signal<Metric>('size');
@@ -41,9 +66,9 @@ function App() {
   function markAtPointer(){const nodes=Array.from(hovered().values()).sort((a,b)=>b.path.length-a.path.length);toggleMark(nodes[0] || (pointerInMap()?null:selection()));}
   const frame = signal({ width: 700, height: 520 }, { equals: (a,b)=>a.width===b.width && a.height===b.height });
   const zoom = signal(1);
-  const cameraScale=createNativeValue(1);
-  const cameraX=createNativeValue(0);
-  const cameraY=createNativeValue(0);
+  const cameraScale=createAnimatedValue(1);
+  const cameraX=createAnimatedValue(0);
+  const cameraY=createAnimatedValue(0);
   const boundedScale=cameraScale.interpolate({inputRange:[1,8],outputRange:[1,8]});
   const cameraTransform=computed(()=>{
     const maxX=boundedScale.sub(1).mul(frame().width/2);
@@ -60,9 +85,9 @@ function App() {
   function viewParameters(id:string|undefined,folder:string,offset=page()) {
     return {id,path:folder,offset,query:query(),hidden:hidden(),metric:metric(),levels:detailLevels()};
   }
-  const entrance = createNativeValue(0);
-  const sweep = createNativeValue(0);
-  const panelReveal = createNativeValue(1);
+  const entrance = createAnimatedValue(0);
+  const sweep = createAnimatedValue(0);
+  const panelReveal = createAnimatedValue(1);
   effect(() => {
     if (reduceMotion()) entrance.set(1);
     else void entrance.timing(1, { duration: 680, easing: [0.16,1,0.3,1] });
@@ -88,7 +113,7 @@ function App() {
     browseBusy.set(false);
     busy.set(true); message.set('Scanning… large folders may take a moment.');
     try {
-      const data: Snapshot = await request('/scan', { path: target });
+      const data: Snapshot = await scanWithProgress(target);
       if (run !== generation) return;
       batch(()=>{listing.set(null);snapshot.set(data);current.set(data.root);selection.set(data.root);marked.set([]);review.set(false);path.set(data.root.path);directoryPath.set(restoreFolder || data.root.path);page.set(0);query.set('');});
       message.set((data.errorCount || data.errors.length) ? `${data.errorCount || data.errors.length} unreadable or skipped paths. Scan totals exclude these items.` : 'Scan complete · symbolic links and other volumes are not followed.');
@@ -163,7 +188,6 @@ function App() {
   effect(()=>{directoryPath();page();metric();hovered.set(new Map());zoom.set(1);cameraScale.set(1);cameraX.set(0);cameraY.set(0);});
   async function commit() {
     if (busy() || browseBusy() || (removal()!=='empty' && (!snapshot() || !reviewed().length))) return;
-    const scanRoot=snapshot()?.root.path || path();
     const folder=current()?.path || path();
     const parameters=viewParameters(undefined,folder);
     ++viewGeneration;
@@ -173,14 +197,18 @@ function App() {
       const mode=removal();
       const result = await request(mode==='empty'?'/empty-trash':mode==='delete'?'/delete':'/trash', { id: snapshot()?.id, paths: reviewed().map(n=>n.path) });
       outcome=result.error || (mode==='empty'?'Trash emptied.':`${result.completed.length} items ${mode==='delete'?'permanently deleted':'moved to Trash'}.`);
-      // The previous index no longer describes the filesystem. Keep the operation
-      // busy until both fresh disk totals and the current directory have arrived.
-      batch(()=>{review.set(false);reviewed.set([]);marked.set([]);listing.set(null);snapshot.set(null);current.set(null);selection.set(null);hovered.set(new Map());});
-      message.set('Updating disk usage…');
-      const data:Snapshot=await request('/scan',{path:scanRoot});
-      const updated:DirectoryView=await request('/view',{...parameters,id:data.id,fallback:true});
-      loadedViewKey=JSON.stringify({...parameters,id:data.id,path:updated.node.path,offset:updated.offset});
-      batch(()=>{snapshot.set(data);listing.set(updated);current.set(updated.node);selection.set(updated.node);path.set(updated.node.path);directoryPath.set(updated.node.path);page.set(updated.offset);});
+      const completed:string[] = Array.isArray(result.completed)?result.completed:[];
+      const removed=(node:DiskNode)=>completed.some(p=>node.path===p || node.path.startsWith(p+'/'));
+      // The native response already contains the updated cached index. Keep the
+      // current map visible and fetch only its bounded directory view.
+      if(result.snapshot) {
+        const data:Snapshot={...snapshot()!,...result.snapshot};
+        const updated:DirectoryView=await request('/view',{...parameters,id:data.id,fallback:true});
+        loadedViewKey=JSON.stringify({...parameters,id:data.id,path:updated.node.path,offset:updated.offset});
+        batch(()=>{snapshot.set(data);listing.set(updated);current.set(updated.node);selection.set(updated.node);path.set(updated.node.path);directoryPath.set(updated.node.path);page.set(updated.offset);});
+      }
+      batch(()=>{review.set(!!result.error);reviewed.set(reviewed().filter(n=>!removed(n)));marked.set(marked().filter(n=>!removed(n)));hovered.set(new Map());});
+      if(result.warning)outcome+=` ${result.warning}`;
       message.set(outcome);
     } catch (error) {
       message.set(outcome?`${outcome} Refresh failed: ${String(error)}. Scan again to update disk usage.`:String(error));
@@ -204,6 +232,15 @@ function App() {
       <Button label={hidden()?'Hidden: on':'Hidden: off'} action={()=>batch(()=>{hidden.update(v=>!v);page.set(0);})}/>
       <Button label={`Depth ${levels()}`} action={()=>{levels.set(levels()===3?1:levels()+1);}}/>
     </View>
+    <If when={scanProgress()}>
+      <View style={{paddingHorizontal:16,paddingVertical:12,gap:5,borderBottomWidth:1,borderColor:C.line,backgroundColor:'#141416'}}>
+        <View style={{flexDirection:'row',gap:16,alignItems:'center'}}>
+          <Text style={{fontFamily:mono,fontSize:12,color:C.amber}}>Scanning folders</Text>
+          <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{scanProgress()!.directories.toLocaleString()} folders · {scanProgress()!.files.toLocaleString()} files · {formatSize(scanProgress()!.bytes)} found · {scanSeconds()}s elapsed{scanProgress()!.errors?` · ${scanProgress()!.errors} skipped`:''}</Text>
+        </View>
+        <Text numberOfLines={1} ellipsizeMode="middle" style={{fontFamily:mono,fontSize:12,color:C.text}}>{scanProgress()!.path}</Text>
+      </View>
+    </If>
     <View style={{height:2,overflow:'hidden',backgroundColor:busy()?C.line:'transparent'}}>
       <If when={busy()}><View style={{height:2,width:reduceMotion()?'100%':'28%',backgroundColor:C.amber,transform:[{translateX:sweep.interpolate({inputRange:[0,1],outputRange:[-300,1500]})}]}}/></If>
     </View>
@@ -216,17 +253,17 @@ function App() {
                 <View onLayout={e=>{crumbWidth=e.width;scrollCrumbs();}} style={{flexDirection:'row',alignItems:'center',gap:3}}>
                   <Each of={crumbs()}>{(n,i)=><View style={{flexDirection:'row',alignItems:'center',gap:3}}>
                     <If when={i()>0}><Text pointerEvents="none" style={{fontFamily:mono,fontSize:12,color:C.muted}}>›</Text></If>
-                    <View desktop={{windowDrag:false}} accessibilityRole="button" accessibilityLabel={`Go to ${n().path}`} accessibilityState={{disabled:busy() || browseBusy() || n().path===current()?.path}} onPress={()=>{if(n().path!==current()?.path)navigate(n().path);}} class="hover:brightness-125" style={{padding:6,borderRadius:3,cursor:n().path===current()?.path?'default':'pointer'}}>
+                    <View desktop={{windowDrag:false}} role="button" accessibilityLabel={`Go to ${n().path}`} accessibilityState={{disabled:busy() || browseBusy() || n().path===current()?.path}} onPress={()=>{if(n().path!==current()?.path)navigate(n().path);}} class="hover:brightness-125" style={{padding:6,borderRadius:3,cursor:n().path===current()?.path?'default':'pointer'}}>
                       <Text pointerEvents="none" numberOfLines={1} style={{fontFamily:mono,fontSize:12,maxWidth:180,color:n().path===current()?.path?C.text:C.amber}}>{n().name}</Text>
                     </View>
                   </View>}</Each>
                 </View>
               </Scroll>
             </If>
-            <If when={editingPath()}><Input ref={node=>{pathField=node;node.focus();}} accessibilityLabel="Folder path" value={draftPath()} onChangeText={v=>draftPath.set(v)} onSubmitEditing={()=>{editingPath.set(false);void scan(draftPath());}} autoCorrect={false} autoCapitalize="none" style={{fontFamily:mono,color:C.text,fontSize:12,padding:8,backgroundColor:'#09090b'}}/></If>
+            <If when={editingPath()}><Input ref={node=>{pathField=node;node.focus();}} accessibilityLabel="Folder path" value={draftPath()} onChange={v=>draftPath.set(v)} onSubmit={()=>{editingPath.set(false);void scan(draftPath());}} autoCorrect={false} autoCapitalize="none" style={{fontFamily:mono,color:C.text,fontSize:12,padding:8,backgroundColor:'#09090b'}}/></If>
           </View>
           <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{current()?`${formatSize(current()!.size)} · ${current()!.files.toLocaleString()} files`:''}{browseBusy()?' · Loading…':''}</Text>
-          <Input ref={node=>{filterField=node;}} value={query()} onChangeText={v=>batch(()=>{query.set(v);page.set(0);})} placeholder="Filter names…" placeholderTextColor={C.muted} style={{fontFamily:mono,width:130,fontSize:11,color:C.text,padding:6,backgroundColor:'#18181c',borderRadius:4}}/>
+          <Input ref={node=>{filterField=node;}} value={query()} onChange={v=>batch(()=>{query.set(v);page.set(0);})} placeholder="Filter names…" style={{placeholderColor:C.muted,fontFamily:mono,width:130,fontSize:11,color:C.text,padding:6,backgroundColor:'#18181c',borderRadius:4}}/>
         </View>
         <Scroll horizontal style={{height:20,flexGrow:0,flexShrink:0}}><View style={{flexDirection:'row',gap:13,alignItems:'center'}}><Each of={categories}>{category=><View style={{flexDirection:'row',alignItems:'center',gap:4}}><View style={{width:8,height:8,borderRadius:1,backgroundColor:category().color}}/><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{category().label}</Text></View>}</Each></View></Scroll>
         <View testID="treemap" class="hover:opacity-100" onHoverIn={()=>{pointerInMap.set(true);pathField?.blur();filterField?.blur();}} onHoverOut={()=>{pointerInMap.set(false);hovered.set(new Map());}} pinch={{scale:cameraScale}} pan={{x:cameraX,y:cameraY}} onPinchEnd={()=>{void cameraScale.getValue().then(endPinch);}} onLayout={e=>frame.set({width:e.width,height:e.height})} style={{flex:1,overflow:'hidden',backgroundColor:'#050506',borderRadius:3}}>
@@ -247,13 +284,13 @@ function App() {
               <View style={{flexDirection:'row',gap:16}}><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>OF SCAN</Text><Text style={{fontFamily:mono,fontSize:15,color:C.text}}>{((selection()?.size || 0)/(snapshot()?.root.size || 1)*100).toFixed(1)}%</Text></View><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>FILES</Text><Text style={{fontFamily:mono,fontSize:15,color:C.text}}>{(selection()?.files || 0).toLocaleString()}</Text></View></View>
               <View style={{flexDirection:'row',gap:16}}><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>MODIFIED</Text><Text style={{fontFamily:mono,fontSize:12,color:C.text}}>{selection()?new Date(selection()!.modified*1000).toLocaleDateString():'—'}</Text></View><View style={{flex:1,gap:5}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>KIND</Text><Text style={{fontFamily:mono,fontSize:12,color:C.text}}>{selection()?kind(selection()!).label:'—'}</Text></View></View>
               <View style={{flexDirection:'row',gap:6}}><Button label="Open folder" action={()=>{if(selection())enter(selection()!);}}/><Button label="Mark / unmark" action={()=>toggleMark(selection())}/></View>
-              <Button label="Delete permanently" danger disabled={!selection() || selection()?.aggregate || selection()?.path===snapshot()?.root.path || busy() || browseBusy()} action={()=>{if(selection())beginReview('delete',[selection()!]);}}/>
             </If>
             <If when={review()}>
               <Text style={{fontFamily:mono,fontSize:15,color:C.text}}>{removal()==='empty'?'Empty the system Trash?':removal()==='delete'?'Permanently delete these items?':'Move these items to Trash?'}</Text>
               <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{removal()==='trash'?'Recoverable from the system Trash.': 'This permanently removes files and cannot be undone.'}</Text>
               <Each of={removal()==='empty'?[]:reviewed()}>{node=><View style={{gap:7,paddingVertical:6}}><Text style={{fontFamily:mono,fontSize:11,color:C.text}}>{node().path}</Text><Button label={`Exclude · ${formatSize(node().size)}`} action={()=>{if(!busy()){reviewed.set(reviewed().filter(n=>n.path!==node().path));}}}/></View>}</Each>
               <Button label={busy()?'Working…':removal()==='empty'?'Confirm empty Trash':removal()==='delete'?'Confirm permanent deletion':'Confirm move to Trash'} action={()=>void commit()} danger={removal()!=='trash'} active={removal()==='trash'} disabled={busy() || browseBusy() || (removal()!=='empty' && !reviewed().length)}/>
+              <If when={removal()==='trash'}><Button label="Delete permanently" danger disabled={busy() || browseBusy() || !reviewed().length} action={()=>removal.set('delete')}/></If>
               <Button label="Back to explorer" disabled={busy()} action={()=>review.set(false)}/>
             </If>
             <View style={{height:1,backgroundColor:C.line}}/>

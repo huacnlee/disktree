@@ -8,6 +8,7 @@ fn native(registry: &mut Registry) {
 }
 
 /// Scanning, bounded directory queries and reviewed removal operations.
+#[module]
 pub struct Scanner;
 
 #[module]

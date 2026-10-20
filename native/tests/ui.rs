@@ -1,8 +1,9 @@
 //! Runs the production JSX against the real in-process Rust scanner.
 use std::{
     fs,
+    io::Write,
     path::PathBuf,
-    process::Command,
+    process::{Command, Stdio},
     time::{SystemTime, UNIX_EPOCH},
 };
 struct Fixture(PathBuf);
@@ -12,7 +13,7 @@ impl Drop for Fixture {
     }
 }
 #[test]
-#[ignore = "requires nsh and NSH_SOURCE; run after preparing the nsh toolchain"]
+#[ignore = "requires nsh; run through scripts/nsh_toolchain.py"]
 fn jsx_uses_native_scanning_navigation_and_refresh() {
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -41,11 +42,15 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
     fs::write(&keep, vec![1; 4096]).unwrap();
     let state = f.0.join("state.json");
     let mut command = Command::new(std::env::var_os("NSH").unwrap_or_else(|| "nsh".into()));
+    if let Some(cargo) = std::env::var_os("NSH_CARGO") {
+        command.env("CARGO", cargo);
+    }
     command
         .current_dir(&repo)
-        .args([
-            "trace", "--width", "1300", "--height", "850", "--wait", "400",
-        ])
+        .args(["test", "App.tsx", "--trace"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .env("DISKTREE_ROOT", &tree)
         .env("DISKTREE_STATE", &state);
     let root_label = format!("Go to {}", tree.display());
@@ -53,9 +58,10 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
         "Edit folder path",
         "Edit folder path",
         "victim.bin",
-        "Delete permanently",
+        "Mark / unmark",
+        "Delete marked permanently",
         "Back to explorer",
-        "Delete permanently",
+        "Delete marked permanently",
         "Confirm permanent deletion",
         "folder",
         "Open folder",
@@ -66,20 +72,36 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
         "keep.bin",
         "Mark / unmark",
         "Review marked items →",
+        "Delete permanently",
         "Back to explorer",
         "Delete marked permanently",
         "Back to explorer",
         "Empty Trash",
         "Back to explorer",
+        "keep.bin",
+        "Mark / unmark",
         "folder",
         "Open folder",
+        "Mark / unmark",
+        "Review marked items →",
         "Delete permanently",
         "Confirm permanent deletion",
     ];
+    let mut steps = String::from("await app.wait(400);\n");
     for label in labels {
-        command.args(["--tap", &format!("label:{label}")]);
+        let selector = serde_json::to_string(&format!("label:{label}")).unwrap();
+        steps.push_str(&format!(
+            "await app.press({selector}); await app.wait(400);\n"
+        ));
     }
-    let output = command.output().expect("run nsh trace");
+    let mut child = command.spawn().expect("run nsh test");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(steps.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().expect("wait for nsh test");
     let log = format!(
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
@@ -93,7 +115,13 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
         &log[log.len().saturating_sub(4000)..]
     );
     assert!(log.contains("Scan complete"));
-    assert!(log.contains("Updating disk usage…"));
+    assert!(log.contains("Scanning folders"));
+    let confirmation = log.find("Confirm permanent deletion").unwrap();
+    assert!(
+        !log[confirmation..].contains("Scanning folders"),
+        "removal must not start another scan"
+    );
+    assert!(!log.contains("Updating disk usage…"));
     assert!(!victim.exists());
     assert!(!folder.exists());
     assert!(keep.exists());
