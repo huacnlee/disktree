@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install a verified prebuilt release. No sudo, Python or nsh required.
 set -eu
-repo=huacnlee/nsh-disktree
+repo=huacnlee/disktree
 version=${1:-${DISKTREE_VERSION:-latest}}
 case $(uname -s) in Darwin) platform=apple-darwin;; Linux) platform=unknown-linux-gnu;; *) echo 'Supported platforms: macOS and Linux' >&2; exit 1;; esac
 case $(uname -m) in arm64|aarch64) arch=aarch64;; x86_64|amd64) arch=x86_64;; *) echo 'Unsupported CPU architecture' >&2; exit 1;; esac

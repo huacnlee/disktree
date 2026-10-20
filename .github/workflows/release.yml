@@ -53,7 +53,7 @@ jobs:
       - name: Native module regression tests
         run: |
           cargo test --manifest-path native/Cargo.toml --lib --locked
-          cargo test --manifest-path native/Cargo.toml --lib --locked -- --ignored
+          cargo test --manifest-path native/Cargo.toml --lib --release --locked -- --ignored --test-threads=1
       - name: JSX interaction checks
         env:
           NSH: ${{ github.workspace }}/.build/cargo/release/nsh
@@ -71,7 +71,9 @@ jobs:
           DISKTREE_ROOT: ${{ github.workspace }}/tests
           DISKTREE_STATE: ${{ runner.temp }}/disktree-state.json
           DISKTREE_UI_SCRIPT: 'wait 5000; quit'
-        run: python scripts/smoke-package.py
+        run: |
+          python scripts/smoke-package.py
+          python scripts/smoke-macos-identity.py
       - uses: actions/upload-artifact@v4
         with:
           name: disktree-${{ runner.os }}-${{ runner.arch }}

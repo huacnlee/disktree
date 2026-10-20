@@ -45,15 +45,12 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
     let source = app_source()?;
     platform::set_ui_sets(vec![disktree::__nsh_native_module()]);
     let mut options = platform::AppOptions {
+        app_id: "com.huacnlee.disktree".into(),
         title: "Disktree".into(),
         size: (1280, 850),
         appearance: platform::Appearance::Dark,
         ..Default::default()
     };
-    #[cfg(target_os = "linux")]
-    {
-        options.app_id = "com.huacnlee.disktree".into();
-    }
     // The runtime's deterministic script interface is used by CI smoke tests.
     options.script = std::env::var("DISKTREE_UI_SCRIPT").ok();
     let result = platform::run_app(
@@ -83,6 +80,22 @@ impl log::Log for Logger {
 }
 static LOGGER: Logger = Logger;
 fn main() -> ExitCode {
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("__CFBundleIdentifier").is_some_and(|id| id != "com.huacnlee.disktree") {
+        use std::os::unix::process::CommandExt;
+        // CoreFoundation can cache the launching terminal's bundle identity
+        // before main. Re-exec with a clean environment rather than changing
+        // it after AppKit has initialized. exec preserves the PID and arguments.
+        let error = match std::env::current_exe() {
+            Ok(exe) => std::process::Command::new(exe)
+                .args(std::env::args_os().skip(1))
+                .env_remove("__CFBundleIdentifier")
+                .exec(),
+            Err(error) => error,
+        };
+        eprintln!("disktree: could not reset macOS application identity: {error}");
+        return ExitCode::FAILURE;
+    }
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Info);
     match app() {

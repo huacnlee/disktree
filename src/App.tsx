@@ -1,12 +1,13 @@
 import { mount, signal, computed, effect, cleanup, batch, View, Text, Input, Scroll, type YNode } from 'nsh';
-import { Animated, createAnimatedValue } from 'nsh/animated';
+import { Animated, createAnimatedValue, LayoutAnimation } from 'nsh/animated';
 import { reduceMotion } from 'nsh/accessibility';
-import { Window, titleBar } from 'nsh/desktop';
+import { Menu, Window, titleBar } from 'nsh/desktop';
 import { keymap } from 'nsh/keymap';
 import { request } from './runtime';
+import { collapseBreadcrumbs } from './breadcrumbs';
 import { type DiskNode, type Snapshot, type DirectoryView, type Metric, mosaic, formatSize, kind, categories } from './disk';
 
-import { palette as C, finish, Button, MapTile, EmptyMap, MetricControl, AppMark, mono } from './ui';
+import { palette as C, finish, Button, MapTile, EmptyMap, MetricControl, AppMark, AccentBorder, mono } from './ui';
 function App() {
   Window.setTitle('Disktree — Disk space explorer');
   Window.setTitleBar('hidden', 56);
@@ -16,9 +17,9 @@ function App() {
   const path = signal('');
   let pathField:YNode | undefined;
   let filterField:YNode | undefined;
-  let breadcrumbScroll:YNode | undefined;
-  let crumbWidth=0, crumbViewport=0;
-  const scrollCrumbs=()=>breadcrumbScroll?.scrollTo({x:Math.max(0,crumbWidth-crumbViewport),animated:false});
+  let optionsButton:YNode | undefined;
+  let breadcrumbOverflow:YNode | undefined;
+  const crumbViewport=signal(0);
   const draftPath=signal('');
   const query = signal('');
   const busy = signal(false);
@@ -51,6 +52,18 @@ function App() {
   const hidden = signal(true);
   const metric = signal<Metric>('size');
   const levels = signal(2);
+  async function showOptions() {
+    const anchor = await optionsButton?.measure();
+    await Menu.popup([
+      { label:'Show hidden files', checked:hidden(), onSelect:()=>batch(()=>{hidden.update(value=>!value);page.set(0);}) },
+      { type:'separator' },
+      { label:'Treemap depth', submenu:[1,2,3].map(depth=>({
+        label:`${depth} ${depth===1?'level':'levels'}`,
+        checked:levels()===depth,
+        onSelect:()=>levels.set(depth),
+      })) },
+    ], anchor?{x:anchor.pageX,y:anchor.pageY+anchor.height+4}:undefined);
+  }
   const marked = signal<DiskNode[]>([]);
   const review = signal(false);
   const removal = signal<'trash'|'delete'|'empty'>('trash');
@@ -163,10 +176,38 @@ function App() {
   const markedBytes = () => marked().reduce((sum,n) => sum+n.size,0);
   const children = computed(() => listing()?.children || []);
   const tiles = computed(() => mosaic(listing()?.map || [],frame().width,frame().height,metric(),detailLevels(),zoom()));
+  let previousTiles: ReturnType<typeof mosaic> = [];
+  effect(() => {
+    const next = tiles();
+    const changed = next.length !== previousTiles.length || next.some((tile, i) => {
+      const old = previousTiles[i];
+      return !old || tile.node.path !== old.node.path || tile.x !== old.x || tile.y !== old.y || tile.width !== old.width || tile.height !== old.height;
+    });
+    previousTiles = next;
+    if (changed && !reduceMotion()) {
+      // Animate the commit that changes the keyed tiles. Native layout handles
+      // positions/sizes; no JS frame loop or idle animation is needed.
+      LayoutAnimation.configureNext({
+        duration: 320,
+        create: { type:'easeOut', property:'opacity' },
+        update: { type:'easeInEaseOut' },
+        delete: { type:'easeOut', property:'opacity', duration:160 },
+      });
+    }
+  });
   const crumbs = computed(() => {
     const parts=path().split('/').filter(Boolean);
     return [{name:'/',path:'/'},...parts.map((name:string,i:number)=>({name,path:'/'+parts.slice(0,i+1).join('/')}))];
   });
+  const collapsedCrumbs=computed(()=>collapseBreadcrumbs(crumbs(),crumbViewport()));
+  async function showBreadcrumbs() {
+    const anchor=await breadcrumbOverflow?.measure();
+    await Menu.popup(collapsedCrumbs().hidden.map(crumb=>({
+      label:crumb.path,
+      enabled:!busy() && !browseBusy(),
+      onSelect:()=>navigate(crumb.path),
+    })),anchor?{x:anchor.pageX,y:anchor.pageY+anchor.height+4}:undefined);
+  }
   function navigate(target:string) {
     if(busy() || browseBusy())return;
     const node=listing()?.ancestors.find(n=>n.path===target);
@@ -229,8 +270,7 @@ function App() {
       <Button label="Scan folder" icon="scan" disabled={busy() || browseBusy()} action={()=>{const target=editingPath()?draftPath():path();editingPath.set(false);void scan(target);}} active/>
       <Button label="Parent folder" icon="parent" disabled={busy() || browseBusy() || current()?.path==='/'} action={up}/>
       <MetricControl value={metric()} change={value=>batch(()=>{metric.set(value);page.set(0);})}/>
-      <Button label={hidden()?'Hidden: on':'Hidden: off'} action={()=>batch(()=>{hidden.update(v=>!v);page.set(0);})}/>
-      <Button label={`Depth ${levels()}`} action={()=>{levels.set(levels()===3?1:levels()+1);}}/>
+      <View ref={node=>{optionsButton=node;}}><Button label="View options" icon="options" action={()=>void showOptions()}/></View>
     </View>
     <If when={scanProgress()}>
       <View style={{paddingHorizontal:16,paddingVertical:12,gap:5,borderBottomWidth:1,borderColor:C.line,backgroundColor:'#141416'}}>
@@ -247,29 +287,33 @@ function App() {
     <View style={{flex:1,flexDirection:'row',minHeight:150}}>
       <View style={{flex:1,padding:10,gap:7}}>
         <View style={{flexDirection:'row',alignItems:'center',gap:8,height:28}}>
-          <View desktop={{windowDrag:false}} style={{flex:1,minWidth:80}} onLayout={e=>{crumbViewport=e.width;scrollCrumbs();}}>
+          <View desktop={{windowDrag:false}} style={{flex:1,minWidth:80,overflow:'hidden'}} onLayout={e=>crumbViewport.set(e.width)}>
             <If when={!editingPath()}>
-              <Scroll ref={node=>{breadcrumbScroll=node;}} horizontal showsIndicator={false} style={{flexGrow:0}}>
-                <View onLayout={e=>{crumbWidth=e.width;scrollCrumbs();}} style={{flexDirection:'row',alignItems:'center',gap:3}}>
-                  <Each of={crumbs()}>{(n,i)=><View style={{flexDirection:'row',alignItems:'center',gap:3}}>
-                    <If when={i()>0}><Text pointerEvents="none" style={{fontFamily:mono,fontSize:12,color:C.muted}}>›</Text></If>
-                    <View desktop={{windowDrag:false}} role="button" accessibilityLabel={`Go to ${n().path}`} accessibilityState={{disabled:busy() || browseBusy() || n().path===current()?.path}} onPress={()=>{if(n().path!==current()?.path)navigate(n().path);}} class="hover:brightness-125" style={{padding:6,borderRadius:3,cursor:n().path===current()?.path?'default':'pointer'}}>
-                      <Text pointerEvents="none" numberOfLines={1} style={{fontFamily:mono,fontSize:12,maxWidth:180,color:n().path===current()?.path?C.text:C.amber}}>{n().name}</Text>
-                    </View>
-                  </View>}</Each>
-                </View>
-              </Scroll>
+              <View testID="breadcrumbs" style={{flexDirection:'row',alignItems:'center',gap:3,overflow:'hidden'}}>
+                <View desktop={{windowDrag:false}} role="button" accessibilityLabel="Go to /" accessibilityState={{disabled:busy() || browseBusy() || path()==='/'}} onPress={()=>navigate('/')} class="hover:brightness-125" style={{padding:6,flexShrink:0,cursor:'pointer'}}><Text style={{fontFamily:mono,fontSize:12,color:path()==='/'?C.text:C.amber}}>/</Text></View>
+                <If when={collapsedCrumbs().hidden.length>0}>
+                  <Text pointerEvents="none" style={{fontFamily:mono,fontSize:12,color:C.muted}}>›</Text>
+                  <View ref={node=>{breadcrumbOverflow=node;}} desktop={{windowDrag:false}} role="button" accessibilityLabel="Show hidden path segments" accessibilityState={{disabled:busy() || browseBusy()}} onPress={()=>void showBreadcrumbs()} class="hover:brightness-125" style={{paddingHorizontal:6,paddingVertical:4,borderRadius:3,flexShrink:0,cursor:'pointer'}}><Text style={{fontFamily:mono,fontSize:14,color:C.amber}}>…</Text></View>
+                </If>
+                <Each of={collapsedCrumbs().tail}>{n=><View style={{flexDirection:'row',alignItems:'center',gap:3,flexShrink:1,minWidth:0}}>
+                  <Text pointerEvents="none" style={{fontFamily:mono,fontSize:12,color:C.muted,flexShrink:0}}>›</Text>
+                  <View desktop={{windowDrag:false}} role="button" accessibilityLabel={`Go to ${n().path}`} accessibilityState={{disabled:busy() || browseBusy() || n().path===current()?.path}} onPress={()=>{if(n().path!==current()?.path)navigate(n().path);}} class="hover:brightness-125" style={{padding:6,borderRadius:3,flexShrink:1,minWidth:0,cursor:n().path===current()?.path?'default':'pointer'}}>
+                    <Text pointerEvents="none" numberOfLines={1} ellipsizeMode="middle" style={{fontFamily:mono,fontSize:12,maxWidth:180,flexShrink:1,color:n().path===current()?.path?C.text:C.amber}}>{n().name}</Text>
+                  </View>
+                </View>}</Each>
+              </View>
             </If>
             <If when={editingPath()}><Input ref={node=>{pathField=node;node.focus();}} accessibilityLabel="Folder path" value={draftPath()} onChange={v=>draftPath.set(v)} onSubmit={()=>{editingPath.set(false);void scan(draftPath());}} autoCorrect={false} autoCapitalize="none" style={{fontFamily:mono,color:C.text,fontSize:12,padding:8,backgroundColor:'#09090b'}}/></If>
           </View>
           <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{current()?`${formatSize(current()!.size)} · ${current()!.files.toLocaleString()} files`:''}{browseBusy()?' · Loading…':''}</Text>
           <Input ref={node=>{filterField=node;}} value={query()} onChange={v=>batch(()=>{query.set(v);page.set(0);})} placeholder="Filter names…" style={{placeholderColor:C.muted,fontFamily:mono,width:130,fontSize:11,color:C.text,padding:6,backgroundColor:'#18181c',borderRadius:4}}/>
         </View>
-        <Scroll horizontal style={{height:20,flexGrow:0,flexShrink:0}}><View style={{flexDirection:'row',gap:13,alignItems:'center'}}><Each of={categories}>{category=><View style={{flexDirection:'row',alignItems:'center',gap:4}}><View style={{width:8,height:8,borderRadius:1,backgroundColor:category().color}}/><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{category().label}</Text></View>}</Each></View></Scroll>
-        <View testID="treemap" class="hover:opacity-100" onHoverIn={()=>{pointerInMap.set(true);pathField?.blur();filterField?.blur();}} onHoverOut={()=>{pointerInMap.set(false);hovered.set(new Map());}} pinch={{scale:cameraScale}} pan={{x:cameraX,y:cameraY}} onPinchEnd={()=>{void cameraScale.getValue().then(endPinch);}} onLayout={e=>frame.set({width:e.width,height:e.height})} style={{flex:1,overflow:'hidden',backgroundColor:'#050506',borderRadius:3}}>
+        <Scroll horizontal showsIndicator={false} style={{height:20,flexGrow:0,flexShrink:0}}><View style={{flexDirection:'row',gap:13,alignItems:'center'}}><Each of={categories}>{category=><View style={{flexDirection:'row',alignItems:'center',gap:4}}><View style={{width:8,height:8,borderRadius:1,backgroundColor:category().color}}/><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{category().label}</Text></View>}</Each></View></Scroll>
+        <View testID="treemap" class="hover:opacity-100" onHoverIn={()=>{pointerInMap.set(true);pathField?.blur();filterField?.blur();}} onHoverOut={()=>{pointerInMap.set(false);hovered.set(new Map());}} pinch={{scale:cameraScale}} pan={{x:cameraX,y:cameraY}} onPinchEnd={()=>{void cameraScale.getValue().then(endPinch);}} onLayout={e=>frame.set({width:e.width,height:e.height})} style={{flex:1,overflow:'hidden',backgroundColor:'#050506',borderRadius:6}}>
           <View style={{width:frame().width,height:frame().height,transform:cameraTransform()}}><Each of={tiles()} key={tile=>tile.node.path}>{tile=><MapTile tile={tile()} selected={selection()?.path===tile().node.path} marked={marked().some(n=>n.path===tile().node.path || tile().node.path.startsWith(n.path+'/'))} dimmed={!!selection() && selection()?.path!==current()?.path && selection()?.path!==tile().node.path} metric={metric()} levels={detailLevels()} zoom={zoom()} hover={()=>hoverNode(tile().node,true)} leave={()=>hoverNode(tile().node,false)} choose={()=>selectOrEnter(tile().node)} open={()=>enter(tile().node)}/>}</Each>
           </View>
           <If when={!tiles().length}><View pointerEvents="none" style={{position:'absolute',left:0,right:0,top:0,bottom:0}}><EmptyMap busy={busy()}/></View></If>
+          <AccentBorder radius={6}/>
         </View>
       </View>
       <View style={{width:284,backgroundColor:C.panel,borderLeftWidth:1,borderColor:C.line}}>

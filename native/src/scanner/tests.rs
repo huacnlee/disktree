@@ -215,12 +215,14 @@ fn permanent_removal_rejects_unscanned_mounted_descendants() {
     let f = Fixture::new();
     let file = f.file("folder/file");
     let mut index = f.scan();
-    Arc::get_mut(&mut index)
-        .unwrap()
-        .records
-        .get_mut(file.to_str().unwrap())
-        .unwrap()
-        .device += 1;
+    Arc::make_mut(
+        Arc::make_mut(&mut index)
+            .nodes
+            .get_mut(file.to_str().unwrap())
+            .unwrap(),
+    )
+    .record
+    .device += 1;
     let error = validate_removal(
         &index,
         &[f.0.join("folder").to_string_lossy().into_owned()],
@@ -261,8 +263,16 @@ fn large_index_keeps_query_payload_bounded() {
                 path: format!(
                     "/fixture/archive/{}/file-{i}",
                     "long-directory-name/".repeat(5)
-                ),
+                )
+                .into(),
                 name: format!("file-{i:06}"),
+                record: Record {
+                    device: 1,
+                    inode: i,
+                    modified: 1,
+                    nanos: 0,
+                    size: 4000,
+                },
                 directory: false,
                 size: 4096,
                 apparent: 4000,
@@ -275,6 +285,13 @@ fn large_index_keeps_query_payload_bounded() {
     let folder = Arc::new(Node {
         path: "/fixture/archive".into(),
         name: "archive".into(),
+        record: Record {
+            device: 1,
+            inode: 0,
+            modified: 1,
+            nanos: 0,
+            size: 0,
+        },
         directory: true,
         size: count * 4096,
         apparent: count * 4000,
@@ -285,6 +302,13 @@ fn large_index_keeps_query_payload_bounded() {
     let root = Arc::new(Node {
         path: "/fixture".into(),
         name: "fixture".into(),
+        record: Record {
+            device: 1,
+            inode: 0,
+            modified: 1,
+            nanos: 0,
+            size: 0,
+        },
         directory: true,
         size: folder.size,
         apparent: folder.apparent,
@@ -301,7 +325,6 @@ fn large_index_keeps_query_payload_bounded() {
         .into_iter()
         .collect(),
         root,
-        records: HashMap::default(),
         shared: HashSet::default(),
     };
     for (offset, metric) in [(0, "size"), (80, "files"), (160, "apparent")] {
@@ -432,7 +455,18 @@ fn parallel_scan_preserves_index_and_removal_validation() {
         assert_eq!(parallel.root.size, serial.root.size);
         assert_eq!(parallel.root.apparent, serial.root.apparent);
         assert_eq!(parallel.root.files, serial.root.files);
-        assert_eq!(parallel.records, serial.records);
+        assert_eq!(
+            parallel
+                .nodes
+                .iter()
+                .map(|(p, n)| (p.clone(), n.record.clone()))
+                .collect::<HashMap<_, _>>(),
+            serial
+                .nodes
+                .iter()
+                .map(|(p, n)| (p.clone(), n.record.clone()))
+                .collect::<HashMap<_, _>>()
+        );
         assert_eq!(parallel.nodes.len(), serial.nodes.len());
         assert_eq!(response["errorCount"], serial_response["errorCount"]);
         assert_eq!(
@@ -486,8 +520,21 @@ fn bulk_and_stat_scans_preserve_exact_records_and_sizes() {
         .unwrap();
     let (standard, _) = scan_with_reader(&fixture.0, None, 4, false).unwrap();
     let (bulk, _) = scan_with_reader(&fixture.0, None, 4, true).unwrap();
-    assert_eq!(standard.records, bulk.records);
-    assert_eq!(bulk.records[precise.to_str().unwrap()].nanos, 123_456_789);
+    assert_eq!(
+        standard
+            .nodes
+            .iter()
+            .map(|(p, n)| (p.clone(), n.record.clone()))
+            .collect::<HashMap<_, _>>(),
+        bulk.nodes
+            .iter()
+            .map(|(p, n)| (p.clone(), n.record.clone()))
+            .collect::<HashMap<_, _>>()
+    );
+    assert_eq!(
+        bulk.nodes[precise.to_str().unwrap()].record.nanos,
+        123_456_789
+    );
     assert_eq!(standard.root.size, bulk.root.size);
     assert_eq!(standard.root.apparent, bulk.root.apparent);
     assert_eq!(standard.root.files, bulk.root.files);
@@ -521,7 +568,7 @@ fn removal_updates_only_affected_branches_and_allows_later_deletion() {
     assert_eq!(index.id, original_id);
     assert_eq!(index.root.size, expected);
     assert_eq!(index.root.files, 2);
-    assert!(!index.records.contains_key(victim.to_str().unwrap()));
+    assert!(!index.nodes.contains_key(victim.to_str().unwrap()));
     assert!(Arc::ptr_eq(
         &untouched,
         &index.nodes[f.0.join("untouched").to_str().unwrap()]
@@ -557,7 +604,7 @@ fn removal_transfers_size_to_a_surviving_hardlink() {
         .unwrap()
         .path
         .clone();
-    let parent = Path::new(&owner)
+    let parent = Path::new(owner.as_ref())
         .parent()
         .unwrap()
         .to_str()
@@ -570,7 +617,7 @@ fn removal_transfers_size_to_a_surviving_hardlink() {
     assert_eq!(index.root.files, 1);
     let survivor = index.nodes.values().find(|n| !n.directory).unwrap();
     assert_eq!(survivor.size, bytes);
-    validate_removal(&index, &[survivor.path.clone()], true).unwrap();
+    validate_removal(&index, &[survivor.path.to_string()], true).unwrap();
 }
 
 #[test]
@@ -590,8 +637,8 @@ fn partial_removal_retains_failed_items_and_updates_successes() {
     assert_eq!(result["completed"], json!([first]));
     assert!(result["error"].as_str().unwrap().contains("permission"));
     prune_removed(Arc::make_mut(&mut index), &[first.clone()]);
-    assert!(!index.nodes.contains_key(&first));
-    assert!(index.nodes.contains_key(&second));
+    assert!(!index.nodes.contains_key(first.as_str()));
+    assert!(index.nodes.contains_key(second.as_str()));
     assert_eq!(index.root.files, 1);
     validate_removal(&index, &[second], true).unwrap();
 }
@@ -645,4 +692,91 @@ fn empty_trash_reconciles_only_cached_items_without_discovering_files() {
         )
         .is_err()
     );
+}
+
+// Runs the real index builder with deterministic long paths, without filesystem
+// cache or GUI variability. Isolate this test so unrelated test heaps are absent.
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "release memory regression benchmark; run alone with --exact"]
+fn long_path_index_memory_budget() {
+    #[repr(C)]
+    #[derive(Default)]
+    struct Statistics {
+        blocks: libc::c_uint,
+        in_use: usize,
+        maximum: usize,
+        allocated: usize,
+    }
+    unsafe extern "C" {
+        fn malloc_default_zone() -> *mut std::ffi::c_void;
+        fn malloc_zone_statistics(zone: *mut std::ffi::c_void, stats: *mut Statistics);
+    }
+    fn allocated() -> Statistics {
+        let mut stats = Statistics::default();
+        unsafe { malloc_zone_statistics(malloc_default_zone(), &mut stats) };
+        stats
+    }
+    let before = allocated();
+    let root = format!("/fixture/{}", "long-directory-name/".repeat(8));
+    let root = PathBuf::from(root.trim_end_matches('/'));
+    let metadata = |directory| ScanMetadata {
+        record: Record {
+            device: 1,
+            inode: 1,
+            modified: 0,
+            nanos: 0,
+            size: 1,
+        },
+        directory,
+        file: !directory,
+        symlink: false,
+        allocated: 4096,
+        links: 1,
+        evicted: false,
+    };
+    let mut walker = Walker {
+        device: 1,
+        seen: HashSet::default(),
+        nodes: HashMap::default(),
+        errors: vec![],
+        error_count: 0,
+        progress: None,
+        last_progress: Instant::now(),
+        directories: 0,
+        files: 0,
+        bytes: 0,
+        current_directory: String::new(),
+    };
+    let mut raw = HashMap::default();
+    walker.collect(root.clone(), metadata(true), &mut raw);
+    for directory in 0..512 {
+        let folder = root.join(format!("directory-{directory:04}"));
+        walker.collect(folder.clone(), metadata(true), &mut raw);
+        for file in 0..256 {
+            walker.collect(
+                folder.join(format!("file-{file:04}.bin")),
+                metadata(false),
+                &mut raw,
+            );
+        }
+    }
+    let node = walker.assemble(root.to_str().unwrap(), &mut raw);
+    drop(raw);
+    assert_eq!(node.files, 131_072);
+    assert_eq!(walker.nodes.len(), 131_585);
+    let after = allocated();
+    let bytes = after.in_use.saturating_sub(before.in_use);
+    eprintln!(
+        "long-path index: {} entries, {:.2} MiB retained heap, {} allocations",
+        walker.nodes.len(),
+        bytes as f64 / 1048576.,
+        after.blocks.saturating_sub(before.blocks)
+    );
+    assert!(
+        bytes < 80 * 1024 * 1024,
+        "long-path index exceeded 80 MiB: {bytes} bytes"
+    );
+    std::hint::black_box(walker);
+    std::hint::black_box(node);
 }

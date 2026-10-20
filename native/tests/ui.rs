@@ -53,8 +53,9 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
         .stderr(Stdio::piped())
         .env("DISKTREE_ROOT", &tree)
         .env("DISKTREE_STATE", &state);
-    let root_label = format!("Go to {}", tree.display());
     let labels = [
+        "Files",
+        "Disk size",
         "Edit folder path",
         "Edit folder path",
         "victim.bin",
@@ -65,7 +66,7 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
         "Confirm permanent deletion",
         "folder",
         "Open folder",
-        &root_label,
+        "Parent folder",
         "folder",
         "Open folder",
         "Parent folder",
@@ -115,6 +116,15 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
         &log[log.len().saturating_sub(4000)..]
     );
     assert!(log.contains("Scan complete"));
+    for label in ["Files", "Disk size", "Open folder"] {
+        assert!(
+            log.split("\n── ").any(|section| {
+                section.starts_with(&format!("press(label:{label}):"))
+                    && section.contains("LayoutAnimation")
+            }),
+            "{label} must animate its treemap layout change"
+        );
+    }
     assert!(log.contains("Scanning folders"));
     let confirmation = log.find("Confirm permanent deletion").unwrap();
     assert!(
