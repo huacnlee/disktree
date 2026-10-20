@@ -4,8 +4,10 @@ from pathlib import Path
 class InstallerTests(unittest.TestCase):
     def test_verified_release_installs_and_checksum_mismatch_is_rejected(self):
         root=Path(__file__).resolve().parent.parent
+        scratch=root/'.nsh/test-data'
+        scratch.mkdir(parents=True,exist_ok=True)
         for system,target in [('Darwin','apple-darwin'),('Linux','unknown-linux-gnu')]:
-            with self.subTest(system=system),tempfile.TemporaryDirectory() as temp:
+            with self.subTest(system=system),tempfile.TemporaryDirectory(dir=scratch) as temp:
                 temp=Path(temp);fixture=temp/'fixtures';fixture.mkdir();bin_dir=temp/'tools';bin_dir.mkdir()
                 archive=fixture/f'disktree-v0.1.0-aarch64-{target}.tar.gz'
                 with tarfile.open(archive,'w:gz') as tar:

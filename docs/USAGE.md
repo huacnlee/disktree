@@ -1,6 +1,6 @@
 # Disktree for nsh
 
-Development on macOS or Linux (nsh 0.1.1 and Rust; Python 3 for setup tools only):
+Development on macOS or Linux (nsh 0.1.1 and Rust; no JS runtime):
 
 ```
 nsh run
@@ -10,8 +10,7 @@ nsh run
 reload. Mobile hosts require an explicit `--target ios` or `--target android`.
 
 Filesystem scanning and cleanup run on background Rust threads inside the
-native host. JSX calls the Rust module directly; there is no backend process
-or local HTTP server.
+native host. The interface, state, and treemap layout also use Rust; there is no JS bundle, backend process, or local HTTP server.
 Release applications include
 the scanner and do not require Python, Rust, Node or nsh to be installed.
 For a different initial folder:
@@ -29,8 +28,8 @@ pages and cannot be marked for deletion.
 Use the breadcrumb trail to return to a scanned ancestor. Arrow keys select
 siblings. Space marks a selection. Review marked items shows full paths;
 Confirm move to Trash uses the system Trash. Delete permanently removes the
-selected item after reviewing its path; Delete marked permanently removes a
-batch. Empty Trash clears the system Trash after a separate confirmation.
+reviewed items after confirming their paths. Settings → Empty Trash clears
+the system Trash after a separate confirmation.
 Permanent removal cannot be undone. The map refreshes after removal.
 
 Disk size measures allocated blocks, apparent size measures logical bytes,
@@ -47,20 +46,18 @@ space until Trash is emptied. Protected folders may require Full Disk Access
 for the terminal running the scanner.
 
 Checks:
-  nsh check
-  nsh build
-  cargo test --manifest-path native/Cargo.toml --lib --locked
-  cargo test --manifest-path native/Cargo.toml --lib --locked -- --ignored
-  cargo test --manifest-path native/Cargo.toml --test ui --locked -- --ignored
-  python3 -m unittest discover -s tests -p 'test_*.py' -v
+  cargo test --locked
+  cargo test --lib --release --locked -- --ignored --test-threads=1
+  cargo clippy --all-targets --locked
+  python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 
-Source: src/App.tsx (JSX UI), src/disk.ts (classification and treemap layout),
-native/src/lib.rs (JSX native module), native/src/scanner.rs (scanner and Trash).
-Visual direction: a black interface with subtle dimensional surfaces, saturated category
-colors, an original capacity-ring icon, and amber removal marks. Native
-motion includes an entrance reveal, scan sweep, pinch/pan, and a review-panel
-reveal. Tiles retain the original subtle category tints and diagonal gradient;
-large maps avoid individual tile animations and blurred shadows. Respects Reduce Motion.
+Source: src/ui.rs (Rust components), src/state.rs (state and
+background tasks), src/model.rs (classification and layout), and
+src/scanner.rs (scanner and Trash).
+Treemap transitions and pinch/pan run natively. Scan progress occupies the left
+side of the fixed StatusBar. Metric changes do not change the Refresh button's
+appearance. Review appears only when items are marked; permanent removal lives
+inside Review, and Empty Trash lives in Settings. Respects Reduce Motion.
 Inspired by https://github.com/tobi/disktree.
 
 The last successfully scanned or browsed directory is saved in

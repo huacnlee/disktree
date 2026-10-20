@@ -508,12 +508,14 @@ mod tests {
     struct TempDir(PathBuf);
     impl TempDir {
         fn new() -> io::Result<Self> {
-            let path = std::env::temp_dir().join(format!(
-                "disktree-bulk-{}-{}",
-                std::process::id(),
-                super::super::NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
-            fs::create_dir(&path)?;
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join(".nsh/test-data")
+                .join(format!(
+                    "disktree-bulk-{}-{}",
+                    std::process::id(),
+                    super::super::NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                ));
+            fs::create_dir_all(&path)?;
             Ok(Self(path))
         }
         fn path(&self) -> &Path {

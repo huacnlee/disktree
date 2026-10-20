@@ -2,7 +2,6 @@
 """Build an installable, self-contained nsh app for the current platform."""
 import argparse, hashlib, os, platform, plistlib, shutil, subprocess, sys, tarfile
 from pathlib import Path
-from nsh_toolchain import prepare
 
 ROOT=Path(__file__).resolve().parent.parent
 def run(*command,**kwargs):
@@ -15,22 +14,11 @@ def main():
     system=platform.system()
     if system not in ('Darwin','Linux'):raise SystemExit('Build on macOS or Linux')
     target=f"{'aarch64' if platform.machine() in ('arm64','aarch64') else 'x86_64'}-{'apple-darwin' if system=='Darwin' else 'unknown-linux-gnu'}"
-    toolchain=prepare()
-    source=Path(toolchain['NSH_SOURCE'])
-    build=ROOT/'.build'
-    build.mkdir(exist_ok=True)
-    cargo=Path(os.environ.get('CARGO_TARGET_DIR',str(build/'cargo'))).resolve()
-    env={**toolchain,'CARGO_TARGET_DIR':str(cargo),'DISKTREE_VERSION':version}
-    nsh=os.environ.get('NSH')
-    if not nsh:
-        run('cargo','build','--manifest-path',str(source/'Cargo.toml'),'--release','--locked','-p','nsh-cli',env=env)
-        nsh=str(cargo/'release/nsh')
-    actual=subprocess.check_output([nsh,'--version'],text=True).strip()
-    if actual != 'nsh '+toolchain['NSH_VERSION']:
-        raise SystemExit(f"Expected nsh {toolchain['NSH_VERSION']}, found {actual}")
-    run(nsh,'check',env=env)
-    run(nsh,'build','-o',str(build/'bundle'),env=env)
-    run('cargo','build','--manifest-path',str(ROOT/'native/Cargo.toml'),'--release','--locked','--no-default-features',env=env)
+    build=ROOT/'.nsh/package'
+    build.mkdir(parents=True,exist_ok=True)
+    cargo=Path(os.environ.get('CARGO_TARGET_DIR',str(ROOT/'.nsh/target'))).resolve()
+    env={**os.environ,'CARGO_TARGET_DIR':str(cargo),'DISKTREE_VERSION':version}
+    run('cargo','build','--manifest-path',str(ROOT/'Cargo.toml'),'--release','--locked','--no-default-features',env=env)
     stage=build/f'disktree-{version}-{target}'
     if stage.exists():shutil.rmtree(stage)
     stage.mkdir()
@@ -67,13 +55,16 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
         shutil.copy2(cargo/'release/disktree',stage/'disktree')
         (stage/'disktree.desktop').write_text('[Desktop Entry]\nType=Application\nName=Disktree\nComment=Explore disk space with a native treemap\nExec=disktree\nTerminal=false\nCategories=System;Utility;\nIcon=disktree\n')
     shutil.copy2(ROOT/'assets/icon.svg',resources/'icon.svg')
-    shutil.copy2(build/'bundle/bundle.js',resources/'bundle.js')
     shutil.copy2(ROOT/'LICENSE',stage/'LICENSE')
+    metadata=subprocess.check_output(['cargo','metadata','--format-version','1','--locked'],cwd=ROOT,text=True)
+    import json
+    runtime=next(p for p in json.loads(metadata)['packages'] if p['name']=='nsh-core')
+    source=Path(runtime['manifest_path']).parents[2]
     shutil.copy2(source/'LICENSE-APACHE',stage/'LICENSE.nsh')
     if system=='Darwin':run('codesign','--force','--deep','--sign','-','--timestamp=none',str(stage/'Disktree.app'))
     # Validate the CLI wrapper before archiving; smoke-package checks native scanning.
     run(str(stage/'disktree'),'--version')
-    dist=ROOT/'dist';dist.mkdir(exist_ok=True)
+    dist=ROOT/'.nsh/dist';dist.mkdir(exist_ok=True)
     archive=dist/f'disktree-v{version}-{target}.tar.gz'
     with tarfile.open(archive,'w:gz') as tar:
         for child in sorted(stage.iterdir()):tar.add(child,arcname=child.name)

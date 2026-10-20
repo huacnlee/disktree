@@ -15,11 +15,13 @@ ROOT = Path(__file__).resolve().parent.parent
 def main():
     if sys.platform != 'darwin':
         raise SystemExit('This check requires macOS and Xcode Command Line Tools')
-    packages = list((ROOT / '.build').glob('disktree-*/Disktree.app'))
+    packages = list((ROOT / '.nsh/package').glob('disktree-*/Disktree.app'))
     if len(packages) != 1:
         raise SystemExit(f'Expected one staged app, found {len(packages)}')
     app = packages[0]
-    with tempfile.TemporaryDirectory(prefix='disktree-identity-') as temporary:
+    scratch=ROOT/'.nsh/test-data'
+    scratch.mkdir(parents=True,exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='disktree-identity-',dir=scratch) as temporary:
         base = Path(temporary)
         source = base / 'identity.swift'
         source.write_text('''import AppKit

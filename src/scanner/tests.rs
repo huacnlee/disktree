@@ -3,7 +3,7 @@ use std::io::Write;
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let base = home().join(".cache/nsh-disktree-test-tmp");
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".nsh/test-data");
         fs::create_dir_all(&base).unwrap();
         let path = base.join(format!(
             "rust-{}-{}",

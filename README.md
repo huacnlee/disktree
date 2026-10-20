@@ -7,10 +7,10 @@ A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](htt
 - Scans immediately on launch and remembers the last directory.
 - Nested, color-coded treemap for code, Git, caches, builds, toolchains, media, and more.
 - Native treemap transitions.
-- Native MacBook pinch gestures and mouse dragging; keyboard and button zoom controls.
+- Native MacBook pinch gestures and mouse dragging; keyboard zoom controls.
 - Click to select; click a selected folder again to enter it. Breadcrumbs navigate with one click; long paths collapse intermediate folders into a menu instead of scrolling.
 - Point at a tile and press Space to toggle its removal mark.
-- Amber fill, diagonal hatching, and check badges distinguish marked files and folders.
+- Amber fill and check badges distinguish marked files and folders.
 - Review full paths before moving items to the system Trash. Permanent deletion and emptying the system Trash require separate confirmation.
 - Large scan indexes stay in Rust; the UI reads bounded directory pages and map previews.
 
@@ -62,15 +62,15 @@ sudo apt install libgtk-4-1 libglib2.0-bin
 | Select a tile | Click, or use the arrow keys |
 | Enter a folder | Click the selected folder again, Enter, or Open folder |
 | Navigate back | Click a breadcrumb, or Alt+↑ |
-| Zoom | Pinch out/in, use +/− buttons, or Cmd/Ctrl + / - |
+| Zoom | Pinch out/in, or Cmd/Ctrl + / - |
 | Pan | Drag the map with the mouse |
-| Fit the map | Click the percentage or press Cmd/Ctrl+0 |
+| Fit the map | Cmd/Ctrl+0 |
 | Mark/unmark | Point at a tile and press Space, or use Mark / unmark |
 | Review removal | Review marked items → inspect paths → Confirm move to Trash |
-| Delete permanently | Select an item → Delete permanently → inspect path → Confirm permanent deletion |
-| Empty Trash | Empty Trash → Confirm empty Trash |
+| Delete permanently | Mark items → Review → Delete permanently → Confirm permanent deletion |
+| Empty Trash | Settings → Empty Trash… → Confirm empty Trash |
 
-Marking does not delete anything. Successful removal automatically refreshes the map and free space. Use Empty Trash to reclaim space, or Delete marked permanently to bypass Trash; both require confirmation.
+Marking does not delete anything. Successful removal automatically refreshes the map and free space. Use Settings → Empty Trash to reclaim space, or Delete permanently inside Review to bypass Trash; both require confirmation.
 
 Directory lists contain 80 items per page. Filtering searches all direct children of the current directory, including other pages. Aggregate tiles preserve the weight of undisplayed items and cannot be marked. Enter individual folders to inspect their contents.
 
@@ -78,51 +78,55 @@ The last directory is saved in `~/Library/Application Support/Disktree/state.jso
 
 ## Project layout
 
-- `App.tsx`: the thin nsh entry point.
-- `src/`: JSX views, treemap layout, and the native connection adapter.
-- `native/`: Rust native module and packaged desktop host.
-- `scripts/`: development setup and release packaging tools only.
-- `tests/`: JSX regression fixtures and installer tests. Rust tests live in `native/`.
-- `docs/`: detailed [usage notes](docs/USAGE.md).
-- `assets/`: application icon.
+- `src/ui.rs`: Rust components and native gestures.
+- `src/state.rs`: application state and background requests.
+- `src/model.rs`: classification and bounded treemap layout.
+- `src/scanner.rs`: scanning, directory queries, persistence, and cleanup.
+- `src/main.rs`: standalone desktop launcher.
+- `tests/ui.rs`: production Rust UI integration test.
+- `scripts/`: existing release packaging and smoke checks.
 
 ## Development
 
-The project uses nsh 0.1.1's **Rust + JSX** mode. `src/` owns the interface; `native/src/lib.rs` exports `disktree/native`, and `native/src/scanner.rs` implements scanning, bounded directory queries, persistence, and cleanup. JSX calls `Scanner.request()` directly. Filesystem work runs on Rust background threads in the same process: no Python service, loopback HTTP server, generated connection file, or hover patch.
-
-Install Rust and the platform build libraries listed below, then run from the repository root:
-
-```sh
-cargo run
-```
-
-The Rust launcher compiles the current TSX sources and opens the native window with the in-process scanner. On macOS, the executable embeds Disktree application metadata and clears an inherited terminal bundle identity before initializing AppKit, so direct launches appear as disktree instead of Ghostty or Terminal. The packaged `.app` displays Disktree with its own icon. Run again to load source changes. Development and installed applications use the same native module; Python is used only for test and packaging tools.
-
-NSH dependencies follow Git `main`, with the resolved commit recorded in the root `Cargo.lock`. The optional NSH CLI workflow supports JSX hot reload and rebuilds the host on Rust changes. Use `nsh dev` or `nsh run` to open the native window with hot reload. The CLI resolves the Git runtime from the project’s Cargo dependencies and uses it for generated hosts.
-
-Build a self-contained application with Rust, Python 3.11+ (packaging tools only), and Xcode Command Line Tools on macOS, or `clang libclang-dev libgtk-4-dev` on Linux:
+The application is entirely Rust, using nsh's Rust component API. `nsh.json`
+selects the exported `App` component. There are no TSX sources, JavaScript
+bundles, or QuickJS dependencies in the application. Scanning runs on background
+threads; gestures and finite treemap transitions run on the native platform.
 
 ```sh
-python3 scripts/build-release.py --version 0.1.1
+nsh dev
+# Or: nsh run
+# Without the CLI: cargo run --locked
 ```
 
-The first build downloads NSH through Cargo and builds the matching CLI from the runtime’s Git checkout. Release builds disable the development bundler and load the packaged bundle. Archives are written to `dist/`. The packaged Rust host registers the same in-process native module as the development host. Installation directories remain read-only.
+Both CLI commands default to the current desktop system. All project-generated files live under `.nsh/`: Cargo caches in `.nsh/target`,
+test fixtures in `.nsh/test-data`, and packaging in `.nsh/package` and `.nsh/dist`.
+`.cargo/config.toml` makes direct Cargo commands share that cache.
 
-Checks:
+NSH dependencies are
+pinned by `Cargo.lock`. Rust source changes rebuild the native host. The direct
+macOS launcher preserves Disktree's application identity when launched from a terminal.
+
+Build a self-contained release with Rust, Python 3.11+ (existing packaging tools
+only), and Xcode Command Line Tools on macOS, or GTK 4 development libraries
+on Linux:
 
 ```sh
-mkdir -p "$HOME/.cache/nsh-disktree-test-tmp"
-export TMPDIR="$HOME/.cache/nsh-disktree-test-tmp"
-python3 -m unittest discover -s tests -p 'test_*.py' -v
-CARGO_TARGET_DIR="$PWD/.build/cargo" cargo test --manifest-path native/Cargo.toml --lib --locked
-CARGO_TARGET_DIR="$PWD/.build/cargo" cargo test --manifest-path native/Cargo.toml --lib --release --locked -- --ignored --test-threads=1
-python3 scripts/nsh_toolchain.py cargo test --manifest-path native/Cargo.toml --test ui --locked -- --ignored
-python3 scripts/nsh_toolchain.py nsh check
+python3 scripts/build-release.py --version 0.1.2
 ```
 
-The UI check uses isolated fixture files; it opens and cancels the system Trash confirmation, and never empties your system Trash. Rust tests check system Trash command arguments without executing them. Test logs are written under `target/agents/`. Set `TMPDIR` to a writable directory outside the checkout when running Python unit tests.
+Packaging builds the Rust executable directly and writes archives to `.nsh/dist/`.
+It does not compile or ship a JS bundle.
 
-To update NSH, run `cargo update -p nsh-platform-macos -p nsh-platform-linux -p nsh-bundler -p nsh-core`, then run the checks and packaged-window smoke test. Cargo keeps the runtime and bundler on the same Git revision; the toolchain helper uses that checkout for the CLI.
+```sh
+cargo test --locked
+cargo test --lib --release --locked -- --ignored --test-threads=1
+cargo clippy --all-targets --locked
+python3 -B -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+The UI test scans isolated fixtures, switches metrics, navigates, filters, and
+confirms deletion of a fixture file. It never empties the system Trash.
 
 ## Releases
 
@@ -135,9 +139,13 @@ git push origin v0.1.1
 
 Manual workflow runs build CI artifacts without publishing a release.
 
-## Performance (release build)
+## Performance (historical JSX implementation)
 
-### Current release after the fixes
+These measurements describe the previous implementation. They do not establish the Rust UI’s frame rate or memory use.
+
+ (release build)
+
+### Previous JSX release after the fixes
 
 Measured on the same machine with the memory, application identity, and treemap animation fixes applied on top of `634ad4d`. Workloads and sampling follow the baseline method below; values are medians with observed ranges. There are three successful trials each for the empty and 16,384-file trees, and two for the 131,072-file tree. Sessions in which navigation changed the test directory were excluded from the idle comparison.
 
@@ -174,9 +182,9 @@ RSS is resident process memory, not macOS Activity Monitor's memory footprint. P
 The existing scanner-only benchmark, also run in release mode, scanned 16,384 empty files and 65 directories in **7.24 ms with four readers**, versus **16.93 ms with one reader** (2.34× speedup). These are medians of three timed iterations after one warm-up per configuration, excluding fixture creation and GUI startup. Reproduce the scanner benchmark with:
 
 ```sh
-CARGO_TARGET_DIR="$PWD/.build/cargo" cargo test --release --no-default-features --locked --lib scan_benchmark -- --ignored --nocapture
+CARGO_TARGET_DIR="$PWD/.nsh/target" cargo test --release --no-default-features --locked --lib scan_benchmark -- --ignored --nocapture
 # Optional: benchmark an existing directory instead of the generated fixture.
-# DISKTREE_BENCH_ROOT=/path/to/tree CARGO_TARGET_DIR="$PWD/.build/cargo" cargo test --release --no-default-features --locked --lib scan_benchmark -- --ignored --nocapture
+# DISKTREE_BENCH_ROOT=/path/to/tree CARGO_TARGET_DIR="$PWD/.nsh/target" cargo test --release --no-default-features --locked --lib scan_benchmark -- --ignored --nocapture
 ```
 
 ### Large-tree observation
@@ -197,7 +205,7 @@ A deterministic release benchmark builds the real native index with 131,072 file
 This measures retained native heap, not process RSS or physical footprint; the reduction cannot be applied directly to the multi-million-entry session above. A regression gate requires this fixture to stay below 80 MiB. Run it alone so other test allocations cannot affect the measurement:
 
 ```sh
-CARGO_TARGET_DIR="$PWD/.build/cargo" cargo test --release --no-default-features --locked --lib scanner::tests::long_path_index_memory_budget -- --ignored --exact --nocapture
+CARGO_TARGET_DIR="$PWD/.nsh/target" cargo test --release --no-default-features --locked --lib scanner::tests::long_path_index_memory_budget -- --ignored --exact --nocapture
 ```
 
 The existing scan benchmark after the change measured 9.00 ms with four readers and 18.57 ms with one reader (2.06×). These local timings vary with filesystem state and other activity.

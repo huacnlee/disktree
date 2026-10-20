@@ -1,38 +1,9 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::process::ExitCode;
 
 #[cfg(target_os = "linux")]
 use nsh_platform_linux as platform;
 #[cfg(target_os = "macos")]
 use nsh_platform_macos as platform;
-
-#[cfg(not(feature = "development"))]
-fn resources() -> std::io::Result<PathBuf> {
-    let exe = std::env::current_exe()?.canonicalize()?;
-    #[cfg(target_os = "macos")]
-    return Ok(exe.parent().unwrap().parent().unwrap().join("Resources"));
-    #[cfg(target_os = "linux")]
-    return Ok(exe.parent().unwrap().join("resources"));
-}
-fn app_source() -> Result<String, Box<dyn std::error::Error>> {
-    #[cfg(feature = "development")]
-    {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        Ok(nsh_bundler::bundle(&nsh_bundler::BundleOptions {
-            entry: root.join("App.tsx"),
-            minify: false,
-            split: false,
-            ui_sets: vec![disktree::__nsh_native_module().into()],
-        })?
-        .code)
-    }
-    #[cfg(not(feature = "development"))]
-    {
-        Ok(std::fs::read_to_string(resources()?.join("bundle.js"))?)
-    }
-}
 
 fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
     if std::env::args().any(|arg| arg == "--version") {
@@ -42,7 +13,6 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
         );
         return Ok(ExitCode::SUCCESS);
     }
-    let source = app_source()?;
     platform::set_ui_sets(vec![disktree::__nsh_native_module()]);
     let mut options = platform::AppOptions {
         app_id: "com.huacnlee.disktree".into(),
@@ -51,10 +21,18 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
         appearance: platform::Appearance::Dark,
         ..Default::default()
     };
+    let performance = std::env::var_os("DISKTREE_FPS").is_some();
+    options.trace = performance;
+    #[cfg(target_os = "macos")]
+    {
+        options.fps = performance;
+    }
     // The runtime's deterministic script interface is used by CI smoke tests.
     options.script = std::env::var("DISKTREE_UI_SCRIPT").ok();
     let result = platform::run_app(
-        platform::AppSource::Bundle(platform::Bundle::source(source)),
+        platform::AppSource::Rust(
+            platform::Root::of::<disktree::App>().app_id("com.huacnlee.disktree"),
+        ),
         options,
     );
     #[cfg(target_os = "macos")]
@@ -69,7 +47,8 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
 struct Logger;
 impl log::Log for Logger {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() <= log::Level::Warn || metadata.target() == "js"
+        metadata.level() <= log::Level::Warn
+            || (metadata.target() == "nsh::perf" && std::env::var_os("DISKTREE_FPS").is_some())
     }
     fn log(&self, record: &log::Record<'_>) {
         if self.enabled(record.metadata()) {

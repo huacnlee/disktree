@@ -1019,8 +1019,13 @@ fn index(data: &Value) -> Result<Arc<Index>> {
         .cloned()
         .ok_or_else(|| "Scan expired. Scan the folder again.".into())
 }
+#[cfg(test)]
 pub(super) fn request(route: &str, body: &str) -> Result<String> {
     let data: Value = serde_json::from_str(body).map_err(io)?;
+    serde_json::to_string(&dispatch(route, &data)?).map_err(io)
+}
+
+pub(super) fn dispatch(route: &str, data: &Value) -> Result<Value> {
     let response = match route {
         "/scan" => {
             let target = data["path"]
@@ -1049,27 +1054,27 @@ pub(super) fn request(route: &str, body: &str) -> Result<String> {
             }
         }
         "/view" => {
-            let response = view(index(&data)?.as_ref(), &data)?;
+            let response = view(index(data)?.as_ref(), data)?;
             save_location(string(&response["node"], "path")?, &state_file())?;
             response
         }
         "/delete" | "/trash" => {
-            let response = remove(index(&data)?.as_ref(), &data, route == "/delete")?;
+            let response = remove(index(data)?.as_ref(), data, route == "/delete")?;
             let completed: Vec<String> = response["completed"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .filter_map(|path| path.as_str().map(String::from))
                 .collect();
-            removal_snapshot(&data, response, &completed)?
+            removal_snapshot(data, response, &completed)?
         }
         "/empty-trash" => {
             execute(&mut empty_command())?;
-            removal_snapshot(&data, json!({"completed":true}), &[])?
+            removal_snapshot(data, json!({"completed":true}), &[])?
         }
         _ => return Err("Unknown filesystem operation".into()),
     };
-    serde_json::to_string(&response).map_err(io)
+    Ok(response)
 }
 
 #[cfg(test)]
