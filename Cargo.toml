@@ -1,10 +1,38 @@
-[workspace]
-members = ["native"]
-default-members = ["native"]
-resolver = "3"
+[package]
+name = "disktree"
+version = "0.1.3"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+serde_json = "1"
+serde = { version = "1", features = ["rc"] }
+rustc-hash = "2"
+libc = "0.2"
+nsh-core = "=0.1.1"
+log = "0.4"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rustix = { version = "1.1", features = ["fs"] }
+nsh-platform-macos = { git = "https://github.com/longbridge/nsh.git", branch = "main", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nsh-platform-linux = { git = "https://github.com/longbridge/nsh.git", branch = "main", default-features = false }
+
+[dev-dependencies]
+nsh-engine = { git = "https://github.com/longbridge/nsh.git", branch = "main", default-features = false }
+nsh-testing = { git = "https://github.com/longbridge/nsh.git", branch = "main", default-features = false }
 
 # Keep filesystem scanning fast when launching with `cargo run` too.
 [profile.dev.package.disktree]
+opt-level = 3
+
+# Keep interaction dependencies fast without disabling debug checks.
+[profile.dev.package.taffy]
+opt-level = 3
+[profile.dev.package.objc2]
+opt-level = 3
+[profile.dev.package.objc2-encode]
 opt-level = 3
 
 # Generated NSH CLI hosts patch registry dependencies to their own core.

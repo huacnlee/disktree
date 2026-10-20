@@ -2,9 +2,11 @@
 import os, subprocess, tempfile, json
 from pathlib import Path
 root=Path(__file__).resolve().parent.parent
-packages=list((root/'.build').glob('disktree-*/disktree'))
+packages=list((root/'.nsh/package').glob('disktree-*/disktree'))
 if len(packages)!=1:raise SystemExit(f'Expected one staged package, found {len(packages)}')
-with tempfile.TemporaryDirectory() as temporary:
+scratch=root/'.nsh/test-data'
+scratch.mkdir(parents=True,exist_ok=True)
+with tempfile.TemporaryDirectory(dir=scratch) as temporary:
     environment={**os.environ,'DISKTREE_ROOT':str(root/'tests'),'DISKTREE_STATE':str(Path(temporary)/'state.json'),'DISKTREE_UI_SCRIPT':os.environ.get('DISKTREE_UI_SCRIPT','wait 5000; quit')}
     # Sidecars inherit stderr. A file avoids waiting on inherited pipe handles
     # after the native GUI process has already exited.

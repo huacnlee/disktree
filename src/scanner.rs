@@ -165,6 +165,7 @@ struct Walker {
     files: u64,
     bytes: u64,
     current_directory: String,
+    percent: u8,
 }
 fn io(error: impl std::fmt::Display) -> String {
     error.to_string()
@@ -275,7 +276,7 @@ impl Walker {
         }
         if let Some(progress) = &self.progress {
             if let Ok(mut value) = progress.lock() {
-                *value = json!({"path":self.current_directory,"directories":self.directories,"files":self.files,"bytes":self.bytes,"errors":self.error_count});
+                *value = json!({"path":self.current_directory,"directories":self.directories,"files":self.files,"bytes":self.bytes,"errors":self.error_count,"percent":self.percent});
             }
         }
         self.last_progress = Instant::now();
@@ -374,6 +375,18 @@ struct PendingNode {
 struct DirectoryQueue {
     paths: VecDeque<PathBuf>,
     active: usize,
+    completed: u64,
+}
+// Directory discovery changes the denominator; keep the estimate monotonic and
+// reserve 100% for the fully reduced and assembled tree.
+fn scan_percent(previous: u8, completed: u64, pending: u64) -> u8 {
+    let total = completed.saturating_add(pending);
+    let estimate = if total == 0 {
+        0
+    } else {
+        (completed as f64 / total as f64 * 100.) as u8
+    };
+    previous.max(estimate.min(99))
 }
 type Entries = Vec<(PathBuf, Result<ScanMetadata>)>;
 
@@ -390,6 +403,7 @@ fn read_directories(
         Mutex::new(DirectoryQueue {
             paths: VecDeque::from([path.to_owned()]),
             active: 0,
+            completed: 0,
         }),
         Condvar::new(),
     );
@@ -468,12 +482,21 @@ fn read_directories(
                     flush(&mut batch, &mut directories);
                     let mut state = queue.0.lock().unwrap();
                     state.active -= 1;
+                    state.completed += 1;
                     queue.1.notify_all();
                 }
             });
         }
         drop(sender);
         for batch in receiver {
+            {
+                let state = queue.0.lock().unwrap();
+                walker.percent = scan_percent(
+                    walker.percent,
+                    state.completed,
+                    state.paths.len() as u64 + state.active as u64,
+                );
+            }
             for (path, metadata) in batch {
                 match metadata {
                     Ok(meta) => walker.collect(path, meta, raw),
@@ -528,6 +551,7 @@ fn scan_with_reader(
         files: 0,
         bytes: 0,
         current_directory: String::new(),
+        percent: 0,
     };
     let mut raw = HashMap::default();
     walker.collect(path.to_owned(), meta.into(), &mut raw);
@@ -535,6 +559,7 @@ fn scan_with_reader(
         read_directories(path, workers.max(1), bulk, &mut walker, &mut raw);
     }
     let root = walker.assemble(root_path, &mut raw);
+    walker.percent = 100;
     walker.publish_progress(true);
     let (total, free) = disk_usage(path)?;
     let id = format!(
@@ -1019,8 +1044,13 @@ fn index(data: &Value) -> Result<Arc<Index>> {
         .cloned()
         .ok_or_else(|| "Scan expired. Scan the folder again.".into())
 }
+#[cfg(test)]
 pub(super) fn request(route: &str, body: &str) -> Result<String> {
     let data: Value = serde_json::from_str(body).map_err(io)?;
+    serde_json::to_string(&dispatch(route, &data)?).map_err(io)
+}
+
+pub(super) fn dispatch(route: &str, data: &Value) -> Result<Value> {
     let response = match route {
         "/scan" => {
             let target = data["path"]
@@ -1049,27 +1079,27 @@ pub(super) fn request(route: &str, body: &str) -> Result<String> {
             }
         }
         "/view" => {
-            let response = view(index(&data)?.as_ref(), &data)?;
+            let response = view(index(data)?.as_ref(), data)?;
             save_location(string(&response["node"], "path")?, &state_file())?;
             response
         }
         "/delete" | "/trash" => {
-            let response = remove(index(&data)?.as_ref(), &data, route == "/delete")?;
+            let response = remove(index(data)?.as_ref(), data, route == "/delete")?;
             let completed: Vec<String> = response["completed"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .filter_map(|path| path.as_str().map(String::from))
                 .collect();
-            removal_snapshot(&data, response, &completed)?
+            removal_snapshot(data, response, &completed)?
         }
         "/empty-trash" => {
             execute(&mut empty_command())?;
-            removal_snapshot(&data, json!({"completed":true}), &[])?
+            removal_snapshot(data, json!({"completed":true}), &[])?
         }
         _ => return Err("Unknown filesystem operation".into()),
     };
-    serde_json::to_string(&response).map_err(io)
+    Ok(response)
 }
 
 #[cfg(test)]

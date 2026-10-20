@@ -3,7 +3,7 @@ use std::io::Write;
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
-        let base = home().join(".cache/nsh-disktree-test-tmp");
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".nsh/test-data");
         fs::create_dir_all(&base).unwrap();
         let path = base.join(format!(
             "rust-{}-{}",
@@ -370,6 +370,7 @@ fn scan_progress_reports_directories_files_and_deduplicated_bytes() {
     let progress = Arc::new(Mutex::new(Value::Null));
     let (index, _) = scan_with_progress(&fixture.0, Some(progress.clone())).unwrap();
     let value = progress.lock().unwrap();
+    assert_eq!(value["percent"], 100);
     assert_eq!(value["directories"], 3);
     assert_eq!(value["files"], 2);
     assert_eq!(value["bytes"], index.root.size);
@@ -747,6 +748,7 @@ fn long_path_index_memory_budget() {
         files: 0,
         bytes: 0,
         current_directory: String::new(),
+        percent: 0,
     };
     let mut raw = HashMap::default();
     walker.collect(root.clone(), metadata(true), &mut raw);
@@ -779,4 +781,12 @@ fn long_path_index_memory_budget() {
     );
     std::hint::black_box(walker);
     std::hint::black_box(node);
+}
+
+#[test]
+fn scan_estimate_stays_monotonic_and_reserves_completion() {
+    assert_eq!(scan_percent(0, 0, 1), 0);
+    assert_eq!(scan_percent(0, 1, 3), 25);
+    assert_eq!(scan_percent(25, 1, 20), 25);
+    assert_eq!(scan_percent(25, 4, 0), 99);
 }

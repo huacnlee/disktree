@@ -1,13 +1,4 @@
 .nsh/
-out/
-connection.ts
-.test-data/
+target/
 __pycache__/
-.runtime-source
-native/target/
-target/
-dist/
-.build/
-.venv/
 *.spec
-target/
