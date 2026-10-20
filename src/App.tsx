@@ -188,7 +188,6 @@ function App() {
   effect(()=>{directoryPath();page();metric();hovered.set(new Map());zoom.set(1);cameraScale.set(1);cameraX.set(0);cameraY.set(0);});
   async function commit() {
     if (busy() || browseBusy() || (removal()!=='empty' && (!snapshot() || !reviewed().length))) return;
-    const scanRoot=snapshot()?.root.path || path();
     const folder=current()?.path || path();
     const parameters=viewParameters(undefined,folder);
     ++viewGeneration;
@@ -198,14 +197,18 @@ function App() {
       const mode=removal();
       const result = await request(mode==='empty'?'/empty-trash':mode==='delete'?'/delete':'/trash', { id: snapshot()?.id, paths: reviewed().map(n=>n.path) });
       outcome=result.error || (mode==='empty'?'Trash emptied.':`${result.completed.length} items ${mode==='delete'?'permanently deleted':'moved to Trash'}.`);
-      // The previous index no longer describes the filesystem. Keep the operation
-      // busy until both fresh disk totals and the current directory have arrived.
-      batch(()=>{review.set(false);reviewed.set([]);marked.set([]);listing.set(null);snapshot.set(null);current.set(null);selection.set(null);hovered.set(new Map());});
-      message.set('Updating disk usage…');
-      const data:Snapshot=await scanWithProgress(scanRoot);
-      const updated:DirectoryView=await request('/view',{...parameters,id:data.id,fallback:true});
-      loadedViewKey=JSON.stringify({...parameters,id:data.id,path:updated.node.path,offset:updated.offset});
-      batch(()=>{snapshot.set(data);listing.set(updated);current.set(updated.node);selection.set(updated.node);path.set(updated.node.path);directoryPath.set(updated.node.path);page.set(updated.offset);});
+      const completed:string[] = Array.isArray(result.completed)?result.completed:[];
+      const removed=(node:DiskNode)=>completed.some(p=>node.path===p || node.path.startsWith(p+'/'));
+      // The native response already contains the updated cached index. Keep the
+      // current map visible and fetch only its bounded directory view.
+      if(result.snapshot) {
+        const data:Snapshot={...snapshot()!,...result.snapshot};
+        const updated:DirectoryView=await request('/view',{...parameters,id:data.id,fallback:true});
+        loadedViewKey=JSON.stringify({...parameters,id:data.id,path:updated.node.path,offset:updated.offset});
+        batch(()=>{snapshot.set(data);listing.set(updated);current.set(updated.node);selection.set(updated.node);path.set(updated.node.path);directoryPath.set(updated.node.path);page.set(updated.offset);});
+      }
+      batch(()=>{review.set(!!result.error);reviewed.set(reviewed().filter(n=>!removed(n)));marked.set(marked().filter(n=>!removed(n)));hovered.set(new Map());});
+      if(result.warning)outcome+=` ${result.warning}`;
       message.set(outcome);
     } catch (error) {
       message.set(outcome?`${outcome} Refresh failed: ${String(error)}. Scan again to update disk usage.`:String(error));

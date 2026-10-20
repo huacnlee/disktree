@@ -119,7 +119,7 @@ fn directory_entries(
     })))
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Node {
     path: String,
     name: String,
@@ -143,11 +143,13 @@ impl Node {
         }
     }
 }
+#[derive(Clone)]
 struct Index {
     id: String,
     root: Arc<Node>,
     nodes: HashMap<String, Arc<Node>>,
     records: HashMap<String, Record>,
+    shared: HashSet<(u64, u64)>,
 }
 struct Walker {
     device: u64,
@@ -546,6 +548,7 @@ fn scan_with_reader(
         root,
         nodes: walker.nodes,
         records: walker.records,
+        shared: walker.seen,
     });
     Ok((index, response))
 }
@@ -762,25 +765,248 @@ fn remove(index: &Index, data: &Value, permanent: bool) -> Result<Value> {
         .filter(|p| unique.insert(p.clone()))
         .collect();
     validate_removal(index, &paths, permanent)?;
-    let mut completed = vec![];
-    for path in paths {
-        let result = if permanent {
-            let meta = fs::symlink_metadata(&path).map_err(io)?;
+    execute_removals(paths, |path| {
+        if permanent {
+            let meta = fs::symlink_metadata(path).map_err(io)?;
             if meta.is_dir() && !meta.file_type().is_symlink() {
-                fs::remove_dir_all(&path).map_err(io)
+                fs::remove_dir_all(path).map_err(io)
             } else {
-                fs::remove_file(&path).map_err(io)
+                fs::remove_file(path).map_err(io)
             }
         } else {
-            execute(&mut trash_command(&path))
-        };
-        if let Err(error) = result {
+            execute(&mut trash_command(path))
+        }
+    })
+}
+fn execute_removals(
+    paths: Vec<String>,
+    mut action: impl FnMut(&str) -> Result<()>,
+) -> Result<Value> {
+    let mut completed = vec![];
+    for path in paths {
+        if let Err(error) = action(&path) {
             return Ok(json!({"completed":completed,"error":error}));
         }
         completed.push(path);
     }
     Ok(json!({"completed":completed}))
 }
+
+fn mark_ancestors(index: &Index, path: &str, dirty: &mut HashSet<String>) {
+    let mut cursor = Path::new(path).parent();
+    while let Some(parent) = cursor.and_then(Path::to_str) {
+        if !index.nodes.contains_key(parent) {
+            break;
+        }
+        dirty.insert(parent.to_owned());
+        if parent == index.root.path {
+            break;
+        }
+        cursor = Path::new(parent).parent();
+    }
+}
+
+// Edit only known removed subtrees and their ancestors. No filesystem walk or
+// new scan ID is needed; unrelated branches retain their existing Arc<Node>.
+fn prune_removed(index: &mut Index, completed: &[String]) {
+    let mut removed = HashSet::default();
+    let mut dirty = HashSet::default();
+    let mut parents = HashSet::default();
+    let mut lost_owners = HashMap::default();
+    let mut pending: Vec<_> = completed
+        .iter()
+        .filter_map(|p| index.nodes.get(p).cloned())
+        .collect();
+    for path in completed {
+        mark_ancestors(index, path, &mut dirty);
+        if let Some(parent) = Path::new(path).parent().and_then(Path::to_str) {
+            parents.insert(parent.to_owned());
+        }
+    }
+    while let Some(node) = pending.pop() {
+        if !removed.insert(node.path.clone()) {
+            continue;
+        }
+        if let Some(record) = index.records.get(&node.path) {
+            let identity = (record.device, record.inode);
+            if !node.directory
+                && index.shared.contains(&identity)
+                && (node.size > 0 || node.apparent > 0)
+            {
+                lost_owners.insert(identity, (node.size, node.apparent));
+            }
+        }
+        pending.extend(node.children.iter().cloned());
+        index.nodes.remove(&node.path);
+        index.records.remove(&node.path);
+    }
+    // A hard link can survive outside a removed subtree. Transfer accounting
+    // from a removed owner to one surviving name, without statting that tree.
+    let mut transfers = vec![];
+    if !lost_owners.is_empty() {
+        for (path, record) in &index.records {
+            if let Some(weights) = lost_owners.remove(&(record.device, record.inode)) {
+                transfers.push((path.clone(), weights));
+                if lost_owners.is_empty() {
+                    break;
+                }
+            }
+        }
+    }
+    for (path, (size, apparent)) in transfers {
+        if let Some(node) = index.nodes.get_mut(&path) {
+            let node = Arc::make_mut(node);
+            node.size = size;
+            node.apparent = apparent;
+        }
+        mark_ancestors(index, &path, &mut dirty);
+    }
+    let mut dirty: Vec<_> = dirty.into_iter().collect();
+    dirty.sort_by_key(|path| std::cmp::Reverse(path.len()));
+    for path in dirty {
+        let Some(old) = index.nodes.get(&path) else {
+            continue;
+        };
+        let mut node = (**old).clone();
+        node.children = old
+            .children
+            .iter()
+            .filter_map(|child| index.nodes.get(&child.path).cloned())
+            .collect();
+        node.size = node.children.iter().map(|child| child.size).sum();
+        node.apparent = node.children.iter().map(|child| child.apparent).sum();
+        node.files = node.children.iter().map(|child| child.files).sum();
+        node.children
+            .sort_by(|a, b| b.size.cmp(&a.size).then(a.name.cmp(&b.name)));
+        // Our removal changes the direct parent's mtime. Refresh its record
+        // only if the surviving immediate names still match the cached tree;
+        // an unrelated new entry must continue to invalidate later deletion.
+        if parents.contains(&path) {
+            if let (Some(old_record), Ok(meta)) =
+                (index.records.get(&path), fs::symlink_metadata(&path))
+            {
+                let current = Record::from(&meta);
+                let expected: HashSet<_> = node
+                    .children
+                    .iter()
+                    .map(|child| child.path.as_str())
+                    .collect();
+                let matches = fs::read_dir(&path)
+                    .ok()
+                    .and_then(|entries| {
+                        entries
+                            .map(|entry| entry.map(|e| e.path()).map_err(io))
+                            .collect::<Result<Vec<_>>>()
+                            .ok()
+                    })
+                    .is_some_and(|entries| {
+                        entries.len() == expected.len()
+                            && entries
+                                .iter()
+                                .all(|p| p.to_str().is_some_and(|p| expected.contains(p)))
+                    });
+                if meta.is_dir()
+                    && !meta.file_type().is_symlink()
+                    && current.device == old_record.device
+                    && current.inode == old_record.inode
+                    && matches
+                    && fs::symlink_metadata(&path)
+                        .is_ok_and(|after| Record::from(&after) == current)
+                {
+                    node.modified = current.modified as f64 + current.nanos as f64 / 1e9;
+                    index.records.insert(path.clone(), current);
+                }
+            }
+        }
+        index.nodes.insert(path, Arc::new(node));
+    }
+    index.root = index.nodes[&index.root.path].clone();
+}
+
+fn missing_cached_items(index: &Index, roots: &[String]) -> Vec<String> {
+    let mut missing = vec![];
+    let mut pending: Vec<_> = roots
+        .iter()
+        .filter_map(|path| index.nodes.get(path).cloned())
+        .collect();
+    while let Some(node) = pending.pop() {
+        match fs::symlink_metadata(&node.path) {
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound && node.path != index.root.path =>
+            {
+                missing.push(node.path.clone())
+            }
+            _ => pending.extend(node.children.iter().cloned()),
+        }
+    }
+    missing
+}
+fn cached_trash_roots(index: &Index) -> Vec<String> {
+    if cfg!(target_os = "macos") {
+        let uid = unsafe { libc::getuid() }.to_string();
+        let mut roots = vec![home().join(".Trash").to_string_lossy().into_owned()];
+        roots.extend(
+            index
+                .nodes
+                .values()
+                .filter(|node| {
+                    node.directory
+                        && node.name == uid
+                        && Path::new(&node.path)
+                            .parent()
+                            .and_then(Path::file_name)
+                            .is_some_and(|name| name == ".Trashes")
+                })
+                .map(|node| node.path.clone()),
+        );
+        if roots.iter().any(|root| inside(&index.root.path, root)) {
+            roots.push(index.root.path.clone());
+        }
+        roots
+    } else {
+        let data = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home().join(".local/share"));
+        let root = data.join("Trash").to_string_lossy().into_owned();
+        if inside(&index.root.path, &root) {
+            vec![index.root.path.clone()]
+        } else {
+            vec![root]
+        }
+    }
+}
+
+fn removal_snapshot(data: &Value, mut response: Value, completed: &[String]) -> Result<Value> {
+    let mut active = INDEX.lock().map_err(io)?;
+    let Some(current) = active
+        .as_mut()
+        .filter(|index| data["id"].as_str() == Some(index.id.as_str()))
+    else {
+        return Ok(response);
+    };
+    let index = Arc::make_mut(current);
+    if response["completed"].as_bool() == Some(true) {
+        // Empty Trash can remove paths already present in the snapshot. Check
+        // those known entries only; do not discover or rescan any directories.
+        let missing = missing_cached_items(index, &cached_trash_roots(index));
+        prune_removed(index, &missing);
+    } else {
+        prune_removed(index, completed);
+    }
+    let mut snapshot = json!({"id":index.id,"root":index.root.shallow()});
+    match disk_usage(Path::new(&index.root.path)) {
+        Ok((total, free)) => {
+            snapshot["total"] = json!(total);
+            snapshot["free"] = json!(free);
+        }
+        Err(error) => {
+            response["warning"] = json!(format!("Disk free space could not be refreshed: {error}"))
+        }
+    }
+    response["snapshot"] = snapshot;
+    Ok(response)
+}
+
 fn index(data: &Value) -> Result<Arc<Index>> {
     INDEX
         .lock()
@@ -824,11 +1050,19 @@ pub(super) fn request(route: &str, body: &str) -> Result<String> {
             save_location(string(&response["node"], "path")?, &state_file())?;
             response
         }
-        "/delete" => remove(index(&data)?.as_ref(), &data, true)?,
-        "/trash" => remove(index(&data)?.as_ref(), &data, false)?,
+        "/delete" | "/trash" => {
+            let response = remove(index(&data)?.as_ref(), &data, route == "/delete")?;
+            let completed: Vec<String> = response["completed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|path| path.as_str().map(String::from))
+                .collect();
+            removal_snapshot(&data, response, &completed)?
+        }
         "/empty-trash" => {
             execute(&mut empty_command())?;
-            json!({"completed":true})
+            removal_snapshot(&data, json!({"completed":true}), &[])?
         }
         _ => return Err("Unknown filesystem operation".into()),
     };

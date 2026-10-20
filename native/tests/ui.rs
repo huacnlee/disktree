@@ -116,7 +116,12 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
     );
     assert!(log.contains("Scan complete"));
     assert!(log.contains("Scanning folders"));
-    assert!(log.contains("Updating disk usage…"));
+    let confirmation = log.find("Confirm permanent deletion").unwrap();
+    assert!(
+        !log[confirmation..].contains("Scanning folders"),
+        "removal must not start another scan"
+    );
+    assert!(!log.contains("Updating disk usage…"));
     assert!(!victim.exists());
     assert!(!folder.exists());
     assert!(keep.exists());

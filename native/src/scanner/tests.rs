@@ -164,14 +164,22 @@ fn permanent_delete_unlinks_symlink_without_touching_target() {
 fn deleting_current_directory_refreshes_to_surviving_parent() {
     let f = Fixture::new();
     f.file("folder/file");
-    let index = f.scan();
-    remove(&index, &json!({"paths":[f.0.join("folder")]}), true).unwrap();
-    let fresh = f.scan();
-    let v = view(&fresh, &json!({"path":f.0.join("folder"),"fallback":true})).unwrap();
+    let mut index = f.scan();
+    let id = index.id.clone();
+    let response = remove(&index, &json!({"paths":[f.0.join("folder")]}), true).unwrap();
+    let completed = response["completed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p.as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    prune_removed(Arc::make_mut(&mut index), &completed);
+    let v = view(&index, &json!({"path":f.0.join("folder"),"fallback":true})).unwrap();
     assert_eq!(v["node"]["path"], f.0.to_str().unwrap());
     assert_eq!(v["count"], 0);
-    assert_eq!(fresh.root.files, 0);
-    assert!(view(&fresh, &json!({"path":f.0.parent(),"fallback":true})).is_err());
+    assert_eq!(index.root.files, 0);
+    assert_eq!(index.id, id);
+    assert!(view(&index, &json!({"path":f.0.parent(),"fallback":true})).is_err());
 }
 #[test]
 fn state_persistence_and_missing_locations() {
@@ -294,6 +302,7 @@ fn large_index_keeps_query_payload_bounded() {
         .collect(),
         root,
         records: HashMap::default(),
+        shared: HashSet::default(),
     };
     for (offset, metric) in [(0, "size"), (80, "files"), (160, "apparent")] {
         let result = view(
@@ -492,4 +501,148 @@ fn bulk_and_stat_scans_preserve_exact_records_and_sizes() {
         .set_modified(std::time::UNIX_EPOCH + Duration::new(1_700_000_000, 987_654_321))
         .unwrap();
     assert!(validate_removal(&bulk, &[precise.to_string_lossy().into_owned()], true).is_err());
+}
+
+#[test]
+fn removal_updates_only_affected_branches_and_allows_later_deletion() {
+    let f = Fixture::new();
+    let victim = f.file("folder/victim");
+    let keep = f.file("folder/keep");
+    f.file("untouched/keep");
+    let mut index = f.scan();
+    let original_id = index.id.clone();
+    let untouched = index.nodes[f.0.join("untouched").to_str().unwrap()].clone();
+    let expected = index.root.size - index.nodes[victim.to_str().unwrap()].size;
+    remove(&index, &json!({"paths":[victim]}), true).unwrap();
+    prune_removed(
+        Arc::make_mut(&mut index),
+        &[victim.to_string_lossy().into_owned()],
+    );
+    assert_eq!(index.id, original_id);
+    assert_eq!(index.root.size, expected);
+    assert_eq!(index.root.files, 2);
+    assert!(!index.records.contains_key(victim.to_str().unwrap()));
+    assert!(Arc::ptr_eq(
+        &untouched,
+        &index.nodes[f.0.join("untouched").to_str().unwrap()]
+    ));
+    validate_removal(
+        &index,
+        &[f.0.join("folder").to_string_lossy().into_owned()],
+        true,
+    )
+    .unwrap();
+    remove(&index, &json!({"paths":[keep]}), true).unwrap();
+    prune_removed(
+        Arc::make_mut(&mut index),
+        &[keep.to_string_lossy().into_owned()],
+    );
+    assert_eq!(index.root.files, 1);
+    assert_eq!(index.nodes[f.0.join("folder").to_str().unwrap()].size, 0);
+}
+
+#[test]
+fn removal_transfers_size_to_a_surviving_hardlink() {
+    let f = Fixture::new();
+    let first = f.file("one/data");
+    fs::create_dir(f.0.join("two")).unwrap();
+    fs::hard_link(&first, f.0.join("two/data")).unwrap();
+    let mut index = f.scan();
+    let bytes = index.root.size;
+    let apparent = index.root.apparent;
+    let owner = index
+        .nodes
+        .values()
+        .find(|n| !n.directory && n.size > 0)
+        .unwrap()
+        .path
+        .clone();
+    let parent = Path::new(&owner)
+        .parent()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    remove(&index, &json!({"paths":[parent]}), true).unwrap();
+    prune_removed(Arc::make_mut(&mut index), &[parent]);
+    assert_eq!(index.root.size, bytes);
+    assert_eq!(index.root.apparent, apparent);
+    assert_eq!(index.root.files, 1);
+    let survivor = index.nodes.values().find(|n| !n.directory).unwrap();
+    assert_eq!(survivor.size, bytes);
+    validate_removal(&index, &[survivor.path.clone()], true).unwrap();
+}
+
+#[test]
+fn partial_removal_retains_failed_items_and_updates_successes() {
+    let f = Fixture::new();
+    let first = f.file("first").to_string_lossy().into_owned();
+    let second = f.file("second").to_string_lossy().into_owned();
+    let mut index = f.scan();
+    let result = execute_removals(vec![first.clone(), second.clone()], |path| {
+        if path == second {
+            Err("simulated permission failure".into())
+        } else {
+            fs::remove_file(path).map_err(io)
+        }
+    })
+    .unwrap();
+    assert_eq!(result["completed"], json!([first]));
+    assert!(result["error"].as_str().unwrap().contains("permission"));
+    prune_removed(Arc::make_mut(&mut index), &[first.clone()]);
+    assert!(!index.nodes.contains_key(&first));
+    assert!(index.nodes.contains_key(&second));
+    assert_eq!(index.root.files, 1);
+    validate_removal(&index, &[second], true).unwrap();
+}
+
+#[test]
+fn removal_does_not_accept_new_unscanned_siblings() {
+    let f = Fixture::new();
+    let victim = f.file("folder/victim");
+    let mut index = f.scan();
+    remove(&index, &json!({"paths":[victim]}), true).unwrap();
+    f.file("folder/new-unscanned");
+    prune_removed(
+        Arc::make_mut(&mut index),
+        &[victim.to_string_lossy().into_owned()],
+    );
+    assert!(
+        validate_removal(
+            &index,
+            &[f.0.join("folder").to_string_lossy().into_owned()],
+            true
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn empty_trash_reconciles_only_cached_items_without_discovering_files() {
+    let f = Fixture::new();
+    f.file("trash/removed/nested");
+    f.file("trash/survivor");
+    let mut index = f.scan();
+    fs::remove_dir_all(f.0.join("trash/removed")).unwrap();
+    f.file("trash/new-unscanned");
+    let missing = missing_cached_items(&index, &[f.0.join("trash").to_string_lossy().into_owned()]);
+    assert_eq!(
+        missing,
+        vec![f.0.join("trash/removed").to_string_lossy().into_owned()]
+    );
+    prune_removed(Arc::make_mut(&mut index), &missing);
+    assert_eq!(index.root.files, 1);
+    assert!(
+        !index
+            .nodes
+            .contains_key(f.0.join("trash/new-unscanned").to_str().unwrap())
+    );
+    assert!(
+        validate_removal(
+            &index,
+            &[f.0.join("trash").to_string_lossy().into_owned()],
+            true
+        )
+        .is_err()
+    );
 }
