@@ -99,9 +99,10 @@ nsh dev
 # Without the CLI: cargo run --locked
 ```
 
-Both CLI commands default to the current desktop system. All project-generated files live under `.nsh/`: Cargo caches in `.nsh/target`,
-test fixtures in `.nsh/test-data`, and packaging in `.nsh/package` and `.nsh/dist`.
-`.cargo/config.toml` makes direct Cargo commands share that cache.
+Both CLI commands default to the current desktop system. NSH-generated files live
+under `.nsh/`: test fixtures in `.nsh/test-data`, packaging in `.nsh/package`,
+and archives in `.nsh/dist`. Cargo keeps its normal `target/` directory and
+respects your existing environment; no Cargo configuration is added.
 
 NSH dependencies are
 pinned by `Cargo.lock`. Rust source changes rebuild the native host. The direct
@@ -182,9 +183,9 @@ RSS is resident process memory, not macOS Activity Monitor's memory footprint. P
 The existing scanner-only benchmark, also run in release mode, scanned 16,384 empty files and 65 directories in **7.24 ms with four readers**, versus **16.93 ms with one reader** (2.34× speedup). These are medians of three timed iterations after one warm-up per configuration, excluding fixture creation and GUI startup. Reproduce the scanner benchmark with:
 
 ```sh
-CARGO_TARGET_DIR="$PWD/.nsh/target" cargo test --release --no-default-features --locked --lib scan_benchmark -- --ignored --nocapture
+cargo test --release --no-default-features --locked --lib scan_benchmark -- --ignored --nocapture
 # Optional: benchmark an existing directory instead of the generated fixture.
-# DISKTREE_BENCH_ROOT=/path/to/tree CARGO_TARGET_DIR="$PWD/.nsh/target" cargo test --release --no-default-features --locked --lib scan_benchmark -- --ignored --nocapture
+# DISKTREE_BENCH_ROOT=/path/to/tree cargo test --release --no-default-features --locked --lib scan_benchmark -- --ignored --nocapture
 ```
 
 ### Large-tree observation
@@ -205,7 +206,7 @@ A deterministic release benchmark builds the real native index with 131,072 file
 This measures retained native heap, not process RSS or physical footprint; the reduction cannot be applied directly to the multi-million-entry session above. A regression gate requires this fixture to stay below 80 MiB. Run it alone so other test allocations cannot affect the measurement:
 
 ```sh
-CARGO_TARGET_DIR="$PWD/.nsh/target" cargo test --release --no-default-features --locked --lib scanner::tests::long_path_index_memory_budget -- --ignored --exact --nocapture
+cargo test --release --no-default-features --locked --lib scanner::tests::long_path_index_memory_budget -- --ignored --exact --nocapture
 ```
 
 The existing scan benchmark after the change measured 9.00 ms with four readers and 18.57 ms with one reader (2.06×). These local timings vary with filesystem state and other activity.

@@ -21,7 +21,6 @@ jobs:
         os: [macos-15, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     env:
-      CARGO_TARGET_DIR: ${{ github.workspace }}/.nsh/target
       TMPDIR: ${{ github.workspace }}/../disktree-tmp
     steps:
       - name: Prepare scratch directory
@@ -39,7 +38,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            .nsh/target
+            target
           key: release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
       - name: Installer regression tests
         run: python -B -m unittest discover -s tests -p 'test_*.py' -v

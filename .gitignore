@@ -1,3 +1,4 @@
 .nsh/
+target/
 __pycache__/
 *.spec

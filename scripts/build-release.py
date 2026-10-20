@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Build an installable, self-contained nsh app for the current platform."""
-import argparse, hashlib, os, platform, plistlib, shutil, subprocess, sys, tarfile
+import argparse, json, hashlib, os, platform, plistlib, shutil, subprocess, sys, tarfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
@@ -16,8 +16,9 @@ def main():
     target=f"{'aarch64' if platform.machine() in ('arm64','aarch64') else 'x86_64'}-{'apple-darwin' if system=='Darwin' else 'unknown-linux-gnu'}"
     build=ROOT/'.nsh/package'
     build.mkdir(parents=True,exist_ok=True)
-    cargo=Path(os.environ.get('CARGO_TARGET_DIR',str(ROOT/'.nsh/target'))).resolve()
-    env={**os.environ,'CARGO_TARGET_DIR':str(cargo),'DISKTREE_VERSION':version}
+    env={**os.environ,'DISKTREE_VERSION':version}
+    metadata=json.loads(subprocess.check_output(['cargo','metadata','--format-version','1','--locked'],cwd=ROOT,env=env,text=True))
+    cargo=Path(metadata['target_directory'])
     run('cargo','build','--manifest-path',str(ROOT/'Cargo.toml'),'--release','--locked','--no-default-features',env=env)
     stage=build/f'disktree-{version}-{target}'
     if stage.exists():shutil.rmtree(stage)
@@ -56,9 +57,7 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
         (stage/'disktree.desktop').write_text('[Desktop Entry]\nType=Application\nName=Disktree\nComment=Explore disk space with a native treemap\nExec=disktree\nTerminal=false\nCategories=System;Utility;\nIcon=disktree\n')
     shutil.copy2(ROOT/'assets/icon.svg',resources/'icon.svg')
     shutil.copy2(ROOT/'LICENSE',stage/'LICENSE')
-    metadata=subprocess.check_output(['cargo','metadata','--format-version','1','--locked'],cwd=ROOT,text=True)
-    import json
-    runtime=next(p for p in json.loads(metadata)['packages'] if p['name']=='nsh-core')
+    runtime=next(p for p in metadata['packages'] if p['name']=='nsh-core')
     source=Path(runtime['manifest_path']).parents[2]
     shutil.copy2(source/'LICENSE-APACHE',stage/'LICENSE.nsh')
     if system=='Darwin':run('codesign','--force','--deep','--sign','-','--timestamp=none',str(stage/'Disktree.app'))
