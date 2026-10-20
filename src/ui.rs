@@ -18,6 +18,7 @@ const LINE: u32 = 0x29292d;
 const INK: u32 = 0xededf0;
 const MUTED: u32 = 0x85858f;
 const GREEN: u32 = 0x65f193;
+const RED: u32 = 0xff8078;
 fn caption(value: impl IntoReactive<SharedString>, size: f32, color: u32) -> Text {
     text(value)
         .font_family(MONO)
@@ -37,6 +38,17 @@ fn control(
     disabled: impl IntoReactive<bool>,
     action: impl Fn() + 'static,
 ) -> View {
+    colored_control(label, glyph, disabled, INK, action)
+}
+fn colored_control(
+    label: impl IntoReactive<SharedString>,
+    glyph: Option<&'static str>,
+    disabled: impl IntoReactive<bool>,
+    color: impl IntoReactive<u32>,
+    action: impl Fn() + 'static,
+) -> View {
+    let color = color.into_reactive();
+    let color = computed(move || color.get());
     let disabled = disabled.into_reactive();
     let disabled = computed(move || disabled.get());
     let label = label.into_reactive();
@@ -71,6 +83,7 @@ fn control(
         .child(
             If::new(move || glyph.is_some(), move || icon(glyph.unwrap())).otherwise(move || {
                 caption(move || label.get(), 11., INK)
+                    .text_color(move || rgb(color.get()))
                     .font_weight(FontWeight::SEMIBOLD)
                     .number_of_lines(1)
             }),
@@ -216,10 +229,10 @@ pub fn App() -> impl IntoElement {
             ..Default::default()
         },
         move |_| {
+            s.options.set(false);
             if !s.busy.get_untracked() {
                 s.review.set(false);
                 s.editing.set(false);
-                s.options.set(false);
                 filter.blur();
             }
         },
@@ -254,7 +267,24 @@ pub fn App() -> impl IntoElement {
                 .child(sidebar(s)),
         )
         .child(statusbar(s))
-        .child(If::new(move || s.options.get(), move || options(s)))
+        .child(If::new(
+            move || s.options.get(),
+            move || {
+                view()
+                    .absolute()
+                    .inset(px(0.))
+                    .child(
+                        view()
+                            .absolute()
+                            .inset(px(0.))
+                            .role(AccessibilityRole::Button)
+                            .label("Close view options")
+                            .window_drag(false)
+                            .on_press(move |_: &()| s.options.set(false)),
+                    )
+                    .child(options(s))
+            },
+        ))
 }
 fn legend() -> impl IntoElement {
     scroll()
@@ -332,7 +362,9 @@ fn toolbar(s: State) -> impl IntoElement {
         .h(px(56.))
         .gap(px(10.))
         .pl(move || px((nsh_core::ui::desktop::title_bar().left.0 + 8.).max(16.)))
-        .pr(px(16.))
+        // Native controls can occupy either edge (Linux decoration layouts,
+        // Windows caption buttons, or macOS traffic lights).
+        .pr(move || px((nsh_core::ui::desktop::title_bar().right.0 + 8.).max(16.)))
         .border_b_1()
         .border_color(rgb(LINE))
         .bg(rgb(0x111113))
@@ -1262,7 +1294,7 @@ fn review_panel(s: State) -> impl IntoElement {
             },
         ))
         .child(
-            button(
+            colored_control(
                 move || {
                     if s.busy.get() {
                         "Working…"
@@ -1274,8 +1306,16 @@ fn review_panel(s: State) -> impl IntoElement {
                         }
                     }
                 },
+                None,
                 move || {
                     s.locked() || s.removal.get() != Removal::Empty && s.reviewed.get().is_empty()
+                },
+                move || {
+                    if s.removal.get() == Removal::Trash {
+                        INK
+                    } else {
+                        RED
+                    }
                 },
                 move || s.commit(),
             )
@@ -1297,11 +1337,15 @@ fn review_panel(s: State) -> impl IntoElement {
         .child(If::new(
             move || s.removal.get() == Removal::Trash,
             move || {
-                button(
+                colored_control(
                     "Delete permanently",
+                    None,
                     move || s.locked() || s.reviewed.get().is_empty(),
+                    RED,
                     move || s.removal.set(Removal::Delete),
                 )
+                .bg(rgb(0x38201e))
+                .border_color(rgb(0xa65a50))
             },
         ))
         .child(button(
@@ -1313,8 +1357,7 @@ fn review_panel(s: State) -> impl IntoElement {
 fn statusbar(s: State) -> impl IntoElement {
     row().test_id("statusbar").h(px(28.)).flex_shrink(0.).gap(px(16.)).px(px(12.)).border_t_1().border_color(rgb(LINE)).bg(rgb(PANEL))
         .child(If::new(move||s.progress.get().is_some(),move||row().test_id("scan-progress").flex_1().min_w(px(0.)).gap(px(12.))
-            .child(caption("Scanning folders",10.,GREEN))
-            .child(caption(move||{let p=s.progress.get().unwrap_or_default();format!("{} folders · {} files · {} found · {}s elapsed{}",count(p.directories),count(p.files),format_size(p.bytes as f64),s.seconds.get(),if p.errors>0{format!(" · {} skipped",p.errors)}else{String::new()})},10.,MUTED).number_of_lines(1))
-            .child(caption(move||s.progress.get().unwrap_or_default().path,10.,INK).number_of_lines(1).flex_1())))
+            .child(caption(move || format!("Scanning folders · ~{}%", s.progress.get().unwrap_or_default().percent),10.,GREEN))
+            .child(caption(move||{let p=s.progress.get().unwrap_or_default();format!("{} folders · {} files · {} found · {}s elapsed{}",count(p.directories),count(p.files),format_size(p.bytes as f64),s.seconds.get(),if p.errors>0{format!(" · {} skipped",p.errors)}else{String::new()})},10.,MUTED).number_of_lines(1).flex_1())))
         .child(If::new(move||s.progress.get().is_none(),move||row().flex_1().gap(px(16.)).child(caption("Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   ⌥↑ Parent   ⌘R Rescan   Esc Close review",10.,MUTED)).child(caption(move||s.message.get(),10.,MUTED).number_of_lines(1).flex_1().text_right())))
 }

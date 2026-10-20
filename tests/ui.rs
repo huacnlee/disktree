@@ -84,6 +84,10 @@ fn rust_ui_scans_browses_filters_and_confirms_removal() {
         "metric changes dimmed Refresh"
     );
     ui.press("label:View options").unwrap();
+    ui.wait_for("label:Empty Trash…").unwrap();
+    ui.press("label:Close view options").unwrap();
+    assert!(!ui.screen().matches("label:Empty Trash…").unwrap());
+    ui.press("label:View options").unwrap();
     ui.press("label:Empty Trash…").unwrap();
     ui.wait_for("label:Confirm empty Trash").unwrap();
     ui.press("label:Back to explorer").unwrap();

@@ -150,10 +150,7 @@ impl State {
             self.browsing.set(false);
             self.seconds.set(0);
             self.message.set("Scanning…".into());
-            self.progress.set(Some(Progress {
-                path: target.clone(),
-                ..Default::default()
-            }));
+            self.progress.set(Some(Progress::default()));
         });
         let poll_token = token.clone();
         self.owner.run(move || {
@@ -191,9 +188,9 @@ impl State {
                             self.path.set(data.root.path.clone());
                             self.selection.set(data.root.clone());
                             self.message.set(if data.error_count > 0 {
-                                format!("{} unreadable or skipped paths.", data.error_count)
+                                format!("Scan complete · 100% · {} unreadable or skipped paths.", data.error_count)
                             } else {
-                                "Scan complete · symbolic links and other volumes are not followed."
+                                "Scan complete · 100% · symbolic links and other volumes are not followed."
                                     .into()
                             });
                             self.snapshot.set(data);

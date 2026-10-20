@@ -66,7 +66,7 @@ pub(crate) struct Directory {
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub(crate) struct Progress {
-    pub path: String,
+    pub percent: u8,
     pub directories: u64,
     pub files: u64,
     pub bytes: u64,
