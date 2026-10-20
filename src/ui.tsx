@@ -8,18 +8,6 @@ import { formatSize, tileColor, type Tile } from './disk';
 export const mono=Platform.OS==='macos'?'Menlo':'monospace';
 export const palette = { bg:'#070708',panel:'#101012',line:'#29292d',text:'#ededf0',muted:'#85858f',amber:'#65f193' };
 export const finish = {boxShadow:'inset 0 1px 0 rgba(255,255,255,0.045)'};
-/** Static native stroke: the green capacity ring meeting warm storage markers. */
-export function AccentBorder(p:{radius:number}) {
-  return <Canvas pointerEvents="none" style={{position:'absolute',left:0,top:0,right:0,bottom:0}} draw={(ctx,size)=>{
-    const line=1, inset=line/2;
-    const gradient=ctx.createLinearGradient(0,size.height,size.width,0);
-    gradient.addColorStop(0,'#327d57');
-    gradient.addColorStop(0.42,'#65f193');
-    gradient.addColorStop(1,'#d6c28c');
-    ctx.strokeStyle=gradient;ctx.lineWidth=line;ctx.beginPath();
-    ctx.roundRect(inset,inset,Math.max(0,size.width-line),Math.max(0,size.height-line),p.radius);ctx.stroke();
-  }}/>;
-}
 export function Appear(p: { children: JSX.Element; delay?: number; flex?: number }) {
   const value = createAnimatedValue(0);
   effect(() => {

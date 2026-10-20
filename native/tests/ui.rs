@@ -4,8 +4,12 @@ use std::{
     io::Write,
     path::PathBuf,
     process::{Command, Stdio},
+    sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
+// NSH writes step modules under the app’s shared .nsh/test directory.
+static UI_SESSION: Mutex<()> = Mutex::new(());
+
 struct Fixture(PathBuf);
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -15,6 +19,7 @@ impl Drop for Fixture {
 #[test]
 #[ignore = "requires nsh; run through scripts/nsh_toolchain.py"]
 fn jsx_uses_native_scanning_navigation_and_refresh() {
+    let _session = UI_SESSION.lock().unwrap_or_else(|error| error.into_inner());
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -138,4 +143,60 @@ fn jsx_uses_native_scanning_navigation_and_refresh() {
     let saved: serde_json::Value = serde_json::from_slice(&fs::read(&state).unwrap()).unwrap();
     assert_eq!(saved["directory"], tree.to_str().unwrap());
     assert!(!log.to_lowercase().contains("panicked at"));
+}
+
+#[test]
+#[ignore = "requires nsh"]
+fn metric_switch_applies_one_treemap_layout() {
+    let _session = UI_SESSION.lock().unwrap_or_else(|error| error.into_inner());
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let base = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap()
+        .join(".cache/nsh-disktree-test-tmp");
+    let fixture = Fixture(base.join(format!("metric-{}-{}", std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos())));
+    let tree = fixture.0.join("tree");
+    fs::create_dir_all(&tree).unwrap();
+    for i in 0..120 {
+        fs::write(
+            tree.join(format!("item-{i:03}.bin")),
+            vec![0; (i + 1) * 128],
+        )
+        .unwrap();
+    }
+    let mut child = Command::new(std::env::var_os("NSH").unwrap_or_else(|| "nsh".into()))
+        .current_dir(&repo)
+        .args(["test", "App.tsx", "--trace"])
+        .env("DISKTREE_ROOT", &tree)
+        .env("DISKTREE_STATE", fixture.0.join("state.json"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run nsh test");
+    child.stdin.take().unwrap().write_all(
+        b"await app.wait(500); await app.press('label:Files'); await app.wait(500); await app.press('label:Disk size'); await app.wait(500);"
+    ).unwrap();
+    let output = child.wait_with_output().unwrap();
+    let log = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.status.success(), "{log}");
+    for label in ["Files", "Disk size"] {
+        let layouts: usize = log
+            .split("\n── ")
+            .filter(|section| section.starts_with(&format!("press(label:{label}):")))
+            .map(|section| section.matches("LayoutAnimation(LayoutAnimation").count())
+            .sum();
+        assert_eq!(
+            layouts, 1,
+            "{label} must apply its new metric and directory view together, without first relaying out stale data"
+        );
+    }
 }

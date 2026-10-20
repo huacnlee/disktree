@@ -7,7 +7,7 @@ import { request } from './runtime';
 import { collapseBreadcrumbs } from './breadcrumbs';
 import { type DiskNode, type Snapshot, type DirectoryView, type Metric, mosaic, formatSize, kind, categories } from './disk';
 
-import { palette as C, finish, Button, MapTile, EmptyMap, MetricControl, AppMark, AccentBorder, mono } from './ui';
+import { palette as C, finish, Button, MapTile, EmptyMap, MetricControl, AppMark, mono } from './ui';
 function App() {
   Window.setTitle('Disktree — Disk space explorer');
   Window.setTitleBar('hidden', 56);
@@ -90,6 +90,9 @@ function App() {
   });
   const detailLevels = computed(()=>Math.max(levels(),zoom()>=1.8?3:1));
   const listing = signal<DirectoryView | null>(null);
+  // Keep the rendered metric with its response. The control can respond
+  // immediately without rearranging the old page before the new one arrives.
+  const listingMetric = signal<Metric>('size');
   const directoryPath = signal('');
   const page = signal(0);
   const browseBusy = signal(false);
@@ -154,7 +157,7 @@ function App() {
     void request('/view', parameters).then((result: DirectoryView) => {
       if (run !== viewGeneration) return;
       loadedViewKey=JSON.stringify({...parameters,path:result.node.path,offset:result.offset});
-      batch(()=>{listing.set(result);current.set(result.node);if(selection()?.path===data.root.path)selection.set(result.node);path.set(result.node.path);browseBusy.set(false);});
+      batch(()=>{listingMetric.set(parameters.metric);listing.set(result);current.set(result.node);if(selection()?.path===data.root.path)selection.set(result.node);path.set(result.node.path);browseBusy.set(false);});
     }).catch(error=>{
       if(run===viewGeneration){browseBusy.set(false);message.set(String(error));}
     });
@@ -175,7 +178,7 @@ function App() {
   }
   const markedBytes = () => marked().reduce((sum,n) => sum+n.size,0);
   const children = computed(() => listing()?.children || []);
-  const tiles = computed(() => mosaic(listing()?.map || [],frame().width,frame().height,metric(),detailLevels(),zoom()));
+  const tiles = computed(() => mosaic(listing()?.map || [],frame().width,frame().height,listingMetric(),detailLevels(),zoom()));
   let previousTiles: ReturnType<typeof mosaic> = [];
   effect(() => {
     const next = tiles();
@@ -226,7 +229,7 @@ function App() {
     cameraScale.set(next);zoom.set(next);
     if(next===1){cameraX.set(0);cameraY.set(0);}
   }
-  effect(()=>{directoryPath();page();metric();hovered.set(new Map());zoom.set(1);cameraScale.set(1);cameraX.set(0);cameraY.set(0);});
+  effect(()=>{directoryPath();page();listingMetric();hovered.set(new Map());zoom.set(1);cameraScale.set(1);cameraX.set(0);cameraY.set(0);});
   async function commit() {
     if (busy() || browseBusy() || (removal()!=='empty' && (!snapshot() || !reviewed().length))) return;
     const folder=current()?.path || path();
@@ -246,7 +249,7 @@ function App() {
         const data:Snapshot={...snapshot()!,...result.snapshot};
         const updated:DirectoryView=await request('/view',{...parameters,id:data.id,fallback:true});
         loadedViewKey=JSON.stringify({...parameters,id:data.id,path:updated.node.path,offset:updated.offset});
-        batch(()=>{snapshot.set(data);listing.set(updated);current.set(updated.node);selection.set(updated.node);path.set(updated.node.path);directoryPath.set(updated.node.path);page.set(updated.offset);});
+        batch(()=>{snapshot.set(data);listingMetric.set(parameters.metric);listing.set(updated);current.set(updated.node);selection.set(updated.node);path.set(updated.node.path);directoryPath.set(updated.node.path);page.set(updated.offset);});
       }
       batch(()=>{review.set(!!result.error);reviewed.set(reviewed().filter(n=>!removed(n)));marked.set(marked().filter(n=>!removed(n)));hovered.set(new Map());});
       if(result.warning)outcome+=` ${result.warning}`;
@@ -272,15 +275,6 @@ function App() {
       <MetricControl value={metric()} change={value=>batch(()=>{metric.set(value);page.set(0);})}/>
       <View ref={node=>{optionsButton=node;}}><Button label="View options" icon="options" action={()=>void showOptions()}/></View>
     </View>
-    <If when={scanProgress()}>
-      <View style={{paddingHorizontal:16,paddingVertical:12,gap:5,borderBottomWidth:1,borderColor:C.line,backgroundColor:'#141416'}}>
-        <View style={{flexDirection:'row',gap:16,alignItems:'center'}}>
-          <Text style={{fontFamily:mono,fontSize:12,color:C.amber}}>Scanning folders</Text>
-          <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{scanProgress()!.directories.toLocaleString()} folders · {scanProgress()!.files.toLocaleString()} files · {formatSize(scanProgress()!.bytes)} found · {scanSeconds()}s elapsed{scanProgress()!.errors?` · ${scanProgress()!.errors} skipped`:''}</Text>
-        </View>
-        <Text numberOfLines={1} ellipsizeMode="middle" style={{fontFamily:mono,fontSize:12,color:C.text}}>{scanProgress()!.path}</Text>
-      </View>
-    </If>
     <View style={{height:2,overflow:'hidden',backgroundColor:busy()?C.line:'transparent'}}>
       <If when={busy()}><View style={{height:2,width:reduceMotion()?'100%':'28%',backgroundColor:C.amber,transform:[{translateX:sweep.interpolate({inputRange:[0,1],outputRange:[-300,1500]})}]}}/></If>
     </View>
@@ -305,15 +299,16 @@ function App() {
             </If>
             <If when={editingPath()}><Input ref={node=>{pathField=node;node.focus();}} accessibilityLabel="Folder path" value={draftPath()} onChange={v=>draftPath.set(v)} onSubmit={()=>{editingPath.set(false);void scan(draftPath());}} autoCorrect={false} autoCapitalize="none" style={{fontFamily:mono,color:C.text,fontSize:12,padding:8,backgroundColor:'#09090b'}}/></If>
           </View>
-          <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{current()?`${formatSize(current()!.size)} · ${current()!.files.toLocaleString()} files`:''}{browseBusy()?' · Loading…':''}</Text>
-          <Input ref={node=>{filterField=node;}} value={query()} onChange={v=>batch(()=>{query.set(v);page.set(0);})} placeholder="Filter names…" style={{placeholderColor:C.muted,fontFamily:mono,width:130,fontSize:11,color:C.text,padding:6,backgroundColor:'#18181c',borderRadius:4}}/>
+          <View style={{width:220,flexShrink:0,height:28,justifyContent:'center'}}>
+            <Text numberOfLines={1} style={{fontFamily:mono,fontSize:11,color:C.muted,textAlign:'right'}}>{current()?`${formatSize(current()!.size)} · ${current()!.files.toLocaleString()} files`:''}</Text>
+          </View>
+          <Input ref={node=>{filterField=node;}} value={query()} onChange={v=>batch(()=>{query.set(v);page.set(0);})} placeholder="Filter names…" style={{placeholderColor:C.muted,fontFamily:mono,width:130,flexShrink:0,fontSize:11,color:C.text,padding:6,backgroundColor:'#18181c',borderRadius:4}}/>
         </View>
         <Scroll horizontal showsIndicator={false} style={{height:20,flexGrow:0,flexShrink:0}}><View style={{flexDirection:'row',gap:13,alignItems:'center'}}><Each of={categories}>{category=><View style={{flexDirection:'row',alignItems:'center',gap:4}}><View style={{width:8,height:8,borderRadius:1,backgroundColor:category().color}}/><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{category().label}</Text></View>}</Each></View></Scroll>
-        <View testID="treemap" class="hover:opacity-100" onHoverIn={()=>{pointerInMap.set(true);pathField?.blur();filterField?.blur();}} onHoverOut={()=>{pointerInMap.set(false);hovered.set(new Map());}} pinch={{scale:cameraScale}} pan={{x:cameraX,y:cameraY}} onPinchEnd={()=>{void cameraScale.getValue().then(endPinch);}} onLayout={e=>frame.set({width:e.width,height:e.height})} style={{flex:1,overflow:'hidden',backgroundColor:'#050506',borderRadius:6}}>
-          <View style={{width:frame().width,height:frame().height,transform:cameraTransform()}}><Each of={tiles()} key={tile=>tile.node.path}>{tile=><MapTile tile={tile()} selected={selection()?.path===tile().node.path} marked={marked().some(n=>n.path===tile().node.path || tile().node.path.startsWith(n.path+'/'))} dimmed={!!selection() && selection()?.path!==current()?.path && selection()?.path!==tile().node.path} metric={metric()} levels={detailLevels()} zoom={zoom()} hover={()=>hoverNode(tile().node,true)} leave={()=>hoverNode(tile().node,false)} choose={()=>selectOrEnter(tile().node)} open={()=>enter(tile().node)}/>}</Each>
+        <View testID="treemap" class="hover:opacity-100" onHoverIn={()=>{pointerInMap.set(true);pathField?.blur();filterField?.blur();}} onHoverOut={()=>{pointerInMap.set(false);hovered.set(new Map());}} pinch={{scale:cameraScale}} pan={{x:cameraX,y:cameraY}} onPinchEnd={()=>{void cameraScale.getValue().then(endPinch);}} onLayout={e=>frame.set({width:e.width,height:e.height})} style={{flex:1,overflow:'hidden',backgroundColor:'#050506',borderRadius:3}}>
+          <View style={{width:frame().width,height:frame().height,transform:cameraTransform()}}><Each of={tiles()} key={tile=>tile.node.path}>{tile=><MapTile tile={tile()} selected={selection()?.path===tile().node.path} marked={marked().some(n=>n.path===tile().node.path || tile().node.path.startsWith(n.path+'/'))} dimmed={!!selection() && selection()?.path!==current()?.path && selection()?.path!==tile().node.path} metric={listingMetric()} levels={detailLevels()} zoom={zoom()} hover={()=>hoverNode(tile().node,true)} leave={()=>hoverNode(tile().node,false)} choose={()=>selectOrEnter(tile().node)} open={()=>enter(tile().node)}/>}</Each>
           </View>
           <If when={!tiles().length}><View pointerEvents="none" style={{position:'absolute',left:0,right:0,top:0,bottom:0}}><EmptyMap busy={busy()}/></View></If>
-          <AccentBorder radius={6}/>
         </View>
       </View>
       <View style={{width:284,backgroundColor:C.panel,borderLeftWidth:1,borderColor:C.line}}>
@@ -345,7 +340,7 @@ function App() {
               <View style={{height:1,backgroundColor:C.line}}/>
               <View style={{flexDirection:'row',alignItems:'center',gap:5}}><Text style={{fontFamily:mono,flex:1,fontSize:10,letterSpacing:0.8,color:C.muted}}>CONTENTS · {listing()?.count || 0} ITEMS</Text><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{listing()?.count?`${listing()!.offset+1}–${Math.min(listing()!.offset+listing()!.pageSize,listing()!.count)}`:''}</Text></View>
               <View style={{flexDirection:'row',justifyContent:'space-between'}}><Button label="‹ Previous" action={()=>changePage(page()-(listing()?.pageSize || 80))}/><Button label="Next ›" action={()=>{const v=listing();if(v && v.offset+v.pageSize<v.count)changePage(v.offset+v.pageSize);}}/></View>
-              <Each of={children()}>{node=><View onPress={()=>selectOrEnter(node())} class="hover:brightness-125" style={{paddingVertical:7,gap:5,cursor:'pointer',borderBottomWidth:1,borderColor:'#242428'}}><View style={{flexDirection:'row',gap:6,alignItems:'center'}}><View style={{width:3,height:13,backgroundColor:kind(node()).color}}/><Text numberOfLines={1} style={{fontFamily:mono,flex:1,fontSize:11,color:selection()?.path===node().path?C.amber:C.text}}>{marked().some(n=>n.path===node().path)?'✓ ':''}{node().directory?'▸ ':''}{node().name}</Text><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{metric()==='files'?String(node().files):formatSize(node()[metric()])}</Text></View><View style={{height:2,backgroundColor:'#101012'}}><View style={{height:2,width:`${100*node()[metric()]/(current()?.[metric()] || 1)}%`,backgroundColor:kind(node()).color}}/></View></View>}</Each>
+              <Each of={children()} key={node=>node.path}>{node=><View onPress={()=>selectOrEnter(node())} class="hover:brightness-125" style={{paddingVertical:7,gap:5,cursor:'pointer',borderBottomWidth:1,borderColor:'#242428'}}><View style={{flexDirection:'row',gap:6,alignItems:'center'}}><View style={{width:3,height:13,backgroundColor:kind(node()).color}}/><Text numberOfLines={1} style={{fontFamily:mono,flex:1,fontSize:11,color:selection()?.path===node().path?C.amber:C.text}}>{marked().some(n=>n.path===node().path)?'✓ ':''}{node().directory?'▸ ':''}{node().name}</Text><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{listingMetric()==='files'?String(node().files):formatSize(node()[listingMetric()])}</Text></View><View style={{height:2,backgroundColor:'#101012'}}><View style={{height:2,width:`${100*node()[listingMetric()]/(current()?.[listingMetric()] || 1)}%`,backgroundColor:kind(node()).color}}/></View></View>}</Each>
             </If>
           </View>
         </Scroll>
@@ -357,7 +352,18 @@ function App() {
         </View>
       </View>
     </View>
-    <View style={{flexDirection:'row',gap:16,alignItems:'center',paddingHorizontal:12,paddingVertical:6,borderTopWidth:1,borderColor:C.line,backgroundColor:'#101012'}}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   ⌥↑ Parent   ⌘R Rescan   Esc Close review</Text><Text numberOfLines={1} style={{fontFamily:mono,flex:1,fontSize:10,color:'#85858f',textAlign:'right'}}>{message()}</Text></View>
+    <View testID="statusbar" style={{height:28,flexShrink:0,flexDirection:'row',gap:16,alignItems:'center',paddingHorizontal:12,borderTopWidth:1,borderColor:C.line,backgroundColor:'#101012'}}>
+      <If when={scanProgress()}>
+        <View pointerEvents="none" testID="scan-progress" style={{flex:1,minWidth:0,flexDirection:'row',alignItems:'center',gap:12}}>
+          <View style={{flexDirection:'row',gap:16,alignItems:'center'}}>
+            <Text style={{fontFamily:mono,fontSize:10,color:C.amber}}>Scanning folders</Text>
+            <Text numberOfLines={1} style={{fontFamily:mono,fontSize:10,color:C.muted}}>{scanProgress()!.directories.toLocaleString()} folders · {scanProgress()!.files.toLocaleString()} files · {formatSize(scanProgress()!.bytes)} found · {scanSeconds()}s elapsed{scanProgress()!.errors?` · ${scanProgress()!.errors} skipped`:''}</Text>
+          </View>
+          <Text numberOfLines={1} ellipsizeMode="middle" style={{fontFamily:mono,fontSize:10,color:C.text,flex:1}}>{scanProgress()!.path}</Text>
+        </View>
+      </If>
+      <If when={!scanProgress()}><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   ⌥↑ Parent   ⌘R Rescan   Esc Close review</Text><Text numberOfLines={1} style={{fontFamily:mono,flex:1,fontSize:10,color:'#85858f',textAlign:'right'}}>{message()}</Text></If>
+    </View>
   </View>;
 }
 mount(App);

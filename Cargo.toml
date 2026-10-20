@@ -7,6 +7,16 @@ resolver = "3"
 [profile.dev.package.disktree]
 opt-level = 3
 
+# Keep interaction dependencies fast without disabling debug checks.
+[profile.dev.package.quickjs-jit-sys]
+opt-level = 3
+[profile.dev.package.taffy]
+opt-level = 3
+[profile.dev.package.objc2]
+opt-level = 3
+[profile.dev.package.objc2-encode]
+opt-level = 3
+
 # Generated NSH CLI hosts patch registry dependencies to their own core.
 # Use the same Git core as the platforms for direct Cargo builds.
 [patch.crates-io]

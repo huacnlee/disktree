@@ -3,11 +3,11 @@
 Development on macOS or Linux (nsh 0.1.1 and Rust; Python 3 for setup tools only):
 
 ```
-nsh run --target macos
+nsh run
 ```
 
-`nsh dev` starts the hot reload server. `nsh run --target macos` also
-opens the AppKit window; `nsh run` uses the default host for this platform.
+`nsh dev` and `nsh run` open the current system’s native window with hot
+reload. Mobile hosts require an explicit `--target ios` or `--target android`.
 
 Filesystem scanning and cleanup run on background Rust threads inside the
 native host. JSX calls the Rust module directly; there is no backend process
@@ -15,7 +15,7 @@ or local HTTP server.
 Release applications include
 the scanner and do not require Python, Rust, Node or nsh to be installed.
 For a different initial folder:
-  DISKTREE_ROOT=~/Downloads nsh run --target macos
+  DISKTREE_ROOT=~/Downloads nsh run
 
 The app scans on launch. Use the pencil icon to edit a path and the refresh
 icon to scan it. Click any breadcrumb to navigate; long paths fold their middle segments into the … menu. Click a tile or a contents row to

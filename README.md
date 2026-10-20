@@ -6,7 +6,7 @@ A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](htt
 
 - Scans immediately on launch and remembers the last directory.
 - Nested, color-coded treemap for code, Git, caches, builds, toolchains, media, and more.
-- Native treemap transitions and mint-to-warm-gold outline around the map.
+- Native treemap transitions.
 - Native MacBook pinch gestures and mouse dragging; keyboard and button zoom controls.
 - Click to select; click a selected folder again to enter it. Breadcrumbs navigate with one click; long paths collapse intermediate folders into a menu instead of scrolling.
 - Point at a tile and press Space to toggle its removal mark.
@@ -98,7 +98,7 @@ cargo run
 
 The Rust launcher compiles the current TSX sources and opens the native window with the in-process scanner. On macOS, the executable embeds Disktree application metadata and clears an inherited terminal bundle identity before initializing AppKit, so direct launches appear as disktree instead of Ghostty or Terminal. The packaged `.app` displays Disktree with its own icon. Run again to load source changes. Development and installed applications use the same native module; Python is used only for test and packaging tools.
 
-NSH dependencies follow Git `main`, with the resolved commit recorded in the root `Cargo.lock`. The optional NSH CLI workflow supports JSX hot reload and rebuilds the host on Rust changes. Use `nsh dev` to start the hot reload server, or `nsh run --target macos` to also open the AppKit window. The CLI resolves the Git runtime from the project’s Cargo dependencies and uses it for generated hosts.
+NSH dependencies follow Git `main`, with the resolved commit recorded in the root `Cargo.lock`. The optional NSH CLI workflow supports JSX hot reload and rebuilds the host on Rust changes. Use `nsh dev` or `nsh run` to open the native window with hot reload. The CLI resolves the Git runtime from the project’s Cargo dependencies and uses it for generated hosts.
 
 Build a self-contained application with Rust, Python 3.11+ (packaging tools only), and Xcode Command Line Tools on macOS, or `clang libclang-dev libgtk-4-dev` on Linux:
 
@@ -139,7 +139,7 @@ Manual workflow runs build CI artifacts without publishing a release.
 
 ### Current release after the fixes
 
-Measured on the same machine with the memory, application identity, and treemap animation fixes applied on top of `634ad4d`. Workloads and sampling follow the baseline method below; values are medians with observed ranges. This measurement predates the subsequent static gradient-border styling. There are three successful trials each for the empty and 16,384-file trees, and two for the 131,072-file tree. Sessions in which navigation changed the test directory were excluded from the idle comparison.
+Measured on the same machine with the memory, application identity, and treemap animation fixes applied on top of `634ad4d`. Workloads and sampling follow the baseline method below; values are medians with observed ranges. There are three successful trials each for the empty and 16,384-file trees, and two for the 131,072-file tree. Sessions in which navigation changed the test directory were excluded from the idle comparison.
 
 | Metric | Empty directory | 16,384 files | 131,072 files |
 | --- | --- | --- | --- |
@@ -201,6 +201,8 @@ CARGO_TARGET_DIR="$PWD/.build/cargo" cargo test --release --no-default-features 
 ```
 
 The existing scan benchmark after the change measured 9.00 ms with four readers and 18.57 ms with one reader (2.06×). These local timings vary with filesystem state and other activity.
+
+Metric changes keep the previous view until the new metric and its bounded directory response can be applied together, avoiding an intermediate layout of stale data. Sidebar rows retain their path keys across metric changes. On the 8,903-file build-dependency directory, one macOS debug-host trace reduced click-handler time from 15–28 ms to 0.3–0.5 ms; generating hosts with NSH’s QuickJS and Taffy debug optimizations reduced the remaining large commits from 47–69 ms to 19–30 ms with the same bundle. These are single-run diagnostic measurements, not frame-rate guarantees.
 
 Treemap layout changes now request finite native transitions: 320 ms for insertion/repositioning/resizing and 160 ms for removal, respecting Reduce Motion. No animation frame loop runs in JavaScript. The UI regression test verifies that transitions are requested when changing metrics and navigating. Native screenshots change during the transition and remain identical once it settles. The macOS identity smoke check exercises both packaged and bare executable launches with inherited Ghostty and Terminal bundle IDs:
 
