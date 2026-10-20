@@ -1,5 +1,5 @@
 import { cleanup, effect, Text, View, type JSX } from 'nsh';
-import { Animated, createNativeValue } from 'nsh/animated';
+import { Animated, createAnimatedValue } from 'nsh/animated';
 import { Platform } from 'nsh/device';
 import { reduceMotion } from 'nsh/accessibility';
 import { Canvas } from 'nsh/canvas';
@@ -9,7 +9,7 @@ export const mono=Platform.OS==='macos'?'Menlo':'monospace';
 export const palette = { bg:'#070708',panel:'#101012',line:'#29292d',text:'#ededf0',muted:'#85858f',amber:'#65f193' };
 export const finish = {boxShadow:'inset 0 1px 0 rgba(255,255,255,0.045)'};
 export function Appear(p: { children: JSX.Element; delay?: number; flex?: number }) {
-  const value = createNativeValue(0);
+  const value = createAnimatedValue(0);
   effect(() => {
     if (reduceMotion()) value.set(1);
     else void value.timing(1, {duration:600,delay:p.delay || 0,easing:[0.16,1,0.3,1]});
@@ -17,9 +17,9 @@ export function Appear(p: { children: JSX.Element; delay?: number; flex?: number
   return <View style={{flex:p.flex,opacity:value,transform:[{translateY:value.interpolate({inputRange:[0,1],outputRange:[16,0]})}]}}>{p.children}</View>;
 }
 export function Button(p: { label: string; action: () => void; active?: boolean; disabled?:boolean; danger?:boolean; icon?:'scan'|'parent'|'edit'; accessibilityLabel?:string }) {
-  const press = createNativeValue(1);
+  const press = createAnimatedValue(1);
   const set = (v:number) => { if(reduceMotion())press.set(v);else void press.spring(v,{stiffness:420,damping:24}); };
-  return <View accessibilityRole="button" accessibilityLabel={p.accessibilityLabel || p.label} accessibilityState={{disabled:!!p.disabled}} onPress={()=>{if(!p.disabled)p.action();}} onPressIn={()=>{if(!p.disabled)set(0.955);}} onPressOut={()=>set(1)} class="hover:brightness-125" style={{paddingHorizontal:p.icon?10:14,paddingVertical:10,alignItems:'center',justifyContent:'center',borderRadius:4,borderCurve:'continuous',borderWidth:1,borderColor:p.danger?'#a65a50':p.active?'#68f296':'#36363d',backgroundColor:p.danger?'#38201e':p.active?'#203329':'#202024',boxShadow:'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.45)',opacity:p.disabled?0.45:1,cursor:p.disabled?'default':'pointer',transform:[{scale:press}]}}>
+  return <View role="button" accessibilityLabel={p.accessibilityLabel || p.label} accessibilityState={{disabled:!!p.disabled}} onPress={()=>{if(!p.disabled)p.action();}} onPressDown={()=>{if(!p.disabled)set(0.955);}} onPressUp={()=>set(1)} class="hover:brightness-125" style={{paddingHorizontal:p.icon?10:14,paddingVertical:10,alignItems:'center',justifyContent:'center',borderRadius:4,borderCurve:'continuous',borderWidth:1,borderColor:p.danger?'#a65a50':p.active?'#68f296':'#36363d',backgroundColor:p.danger?'#38201e':p.active?'#203329':'#202024',boxShadow:'inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.45)',opacity:p.disabled?0.45:1,cursor:p.disabled?'default':'pointer',transform:[{scale:press}]}}>
     <If when={!!p.icon}><Canvas pointerEvents="none" style={{width:16,height:16}} draw={ctx=>{
       ctx.strokeStyle=palette.text;ctx.lineWidth=1.6;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();
       if(p.icon==='scan'){ctx.arc(8,8,5.5,0.1,Math.PI*1.7);ctx.moveTo(11,1);ctx.lineTo(12,4.5);ctx.lineTo(8.5,4.5);}
@@ -31,8 +31,8 @@ export function Button(p: { label: string; action: () => void; active?: boolean;
   </View>;
 }
 export function Capacity(p: {total:number;free:number;busy:boolean}) {
-  const fill = createNativeValue(0);
-  const spin = createNativeValue(0);
+  const fill = createAnimatedValue(0);
+  const spin = createAnimatedValue(0);
   effect(()=>{const to=p.total?1-p.free/p.total:0;if(reduceMotion())fill.set(to);else void fill.timing(to,{duration:1100,easing:[0.16,1,0.3,1]});});
   effect(()=>{
     if(!p.busy || reduceMotion()){spin.set(0);return;}
@@ -55,7 +55,7 @@ export function MapTile(p: {tile:Tile;selected:boolean;dimmed:boolean;marked:boo
   cleanup(()=>p.leave());
   const ink=()=>p.marked?'#ffe6ab':'#e2e5ec';
   const tint=(alpha:number)=>{const hex=tileColor(p.tile.node,p.tile.depth);return `rgba(${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)},${alpha})`;};
-  return <View accessibilityRole="button" accessibilityLabel={p.tile.node.name} onHoverIn={()=>p.hover()} onHoverOut={()=>p.leave()} onPress={p.choose} class="hover:brightness-125" style={{position:'absolute',left:p.tile.x+1/p.zoom,top:p.tile.y+1/p.zoom,width:Math.max(0,p.tile.width-2/p.zoom),height:Math.max(0,p.tile.height-2/p.zoom),borderRadius:3,borderCurve:'continuous',overflow:'hidden',backgroundColor:p.marked?'rgba(210,145,35,0.2)':tint(0.09),backgroundImage:`linear-gradient(155deg, ${p.marked?'rgba(255,208,105,0.08)':tint(0.07)}, rgba(0,0,0,0.12))`,borderWidth:(p.marked?2:1)/p.zoom,borderColor:p.marked?'#ffd36c':tint(p.selected?0.95:0.38),padding:5/p.zoom,opacity:p.dimmed?0.94:1,cursor:'pointer'}}>
+  return <View role="button" accessibilityLabel={p.tile.node.name} onHoverIn={()=>p.hover()} onHoverOut={()=>p.leave()} onPress={p.choose} class="hover:brightness-125" style={{position:'absolute',left:p.tile.x+1/p.zoom,top:p.tile.y+1/p.zoom,width:Math.max(0,p.tile.width-2/p.zoom),height:Math.max(0,p.tile.height-2/p.zoom),borderRadius:3,borderCurve:'continuous',overflow:'hidden',backgroundColor:p.marked?'rgba(210,145,35,0.2)':tint(0.09),backgroundImage:`linear-gradient(155deg, ${p.marked?'rgba(255,208,105,0.08)':tint(0.07)}, rgba(0,0,0,0.12))`,borderWidth:(p.marked?2:1)/p.zoom,borderColor:p.marked?'#ffd36c':tint(p.selected?0.95:0.38),padding:5/p.zoom,opacity:p.dimmed?0.94:1,cursor:'pointer'}}>
     <If when={p.marked}><Canvas pointerEvents="none" style={{position:'absolute',left:0,top:0,right:0,bottom:0}} draw={(ctx,size)=>{ctx.strokeStyle='rgba(255,221,142,0.25)';ctx.lineWidth=1/p.zoom;ctx.beginPath();for(let x=-size.height;x<size.width;x+=10/p.zoom){ctx.moveTo(x,size.height);ctx.lineTo(x+size.height,0);}ctx.stroke();}}/></If>
     <If when={p.marked && p.tile.width*p.zoom>110 && p.tile.height*p.zoom>50}><View pointerEvents="none" style={{position:'absolute',right:5/p.zoom,bottom:5/p.zoom,paddingHorizontal:5/p.zoom,paddingVertical:2/p.zoom,borderRadius:3/p.zoom,backgroundColor:'#ffd36c',opacity:1}}><Text style={{fontFamily:mono,fontSize:9/p.zoom,fontWeight:'700',color:'#382305'}}>✓ MARKED</Text></View></If>
     <If when={p.tile.width*p.zoom>70 && p.tile.height*p.zoom>26}><View style={{flexDirection:'row',gap:5,alignItems:'center'}}><Text numberOfLines={1} style={{fontFamily:mono,flex:1,fontSize:11/p.zoom,fontWeight:'600',color:ink()}}>{p.marked?'✓ ':''}{p.tile.node.name}</Text><If when={p.tile.node.directory && p.tile.width*p.zoom>140}><Text onPress={p.open} style={{fontFamily:mono,fontSize:13/p.zoom,color:ink()}}>↗</Text></If></View></If>
@@ -63,7 +63,7 @@ export function MapTile(p: {tile:Tile;selected:boolean;dimmed:boolean;marked:boo
   </View>;
 }
 export function EmptyMap(p:{busy:boolean}) {
-  const scan=createNativeValue(0);
+  const scan=createAnimatedValue(0);
   effect(()=>{
     if(!p.busy || reduceMotion()){scan.set(0);return;}
     const loop=Animated.loop(Animated.sequence([Animated.timing(scan,{toValue:1,duration:1600,easing:'easeInOut'}),Animated.timing(scan,{toValue:0,duration:1600,easing:'easeInOut'})]));void loop.start();cleanup(()=>loop.stop());
@@ -79,12 +79,12 @@ export function EmptyMap(p:{busy:boolean}) {
 }
 
 export function MetricControl(p:{value:'size'|'apparent'|'files';change:(value:'size'|'apparent'|'files')=>void}) {
-  const offset=createNativeValue(0);
+  const offset=createAnimatedValue(0);
   const options=[{key:'size' as const,label:'Disk size'},{key:'apparent' as const,label:'Apparent'},{key:'files' as const,label:'Files'}];
   effect(()=>{const target=options.findIndex(v=>v.key===p.value)*76;if(reduceMotion())offset.set(target);else void offset.spring(target,{stiffness:350,damping:32});});
   return <View style={{flexDirection:'row',padding:3,borderRadius:4,backgroundColor:'#09090b',borderWidth:1,borderColor:'#303036',backgroundImage:'linear-gradient(180deg, rgba(255,255,255,0.025), transparent)',boxShadow:'inset 0 1px 0 rgba(255,255,255,0.035), 0 2px 4px rgba(0,0,0,0.2)'}}>
     <View pointerEvents="none" style={{position:'absolute',left:3,top:3,bottom:3,width:76,borderRadius:2,backgroundColor:'#303036',borderWidth:1,borderColor:'#484850',boxShadow:'inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.4)',transform:[{translateX:offset}]}}/>
-    <Each of={options}>{v=><View accessibilityRole="tab" accessibilityLabel={v().label} accessibilityState={{selected:p.value===v().key}} onPress={()=>p.change(v().key)} style={{width:76,paddingVertical:8,alignItems:'center',cursor:'pointer'}}><Text style={{fontFamily:mono,fontSize:11,fontWeight:'500',color:p.value===v().key?'#f1f1f4':'#93939f'}}>{v().label}</Text></View>}</Each>
+    <Each of={options}>{v=><View role="tab" accessibilityLabel={v().label} accessibilityState={{selected:p.value===v().key}} onPress={()=>p.change(v().key)} style={{width:76,paddingVertical:8,alignItems:'center',cursor:'pointer'}}><Text style={{fontFamily:mono,fontSize:11,fontWeight:'500',color:p.value===v().key?'#f1f1f4':'#93939f'}}>{v().label}</Text></View>}</Each>
   </View>;
 }
 

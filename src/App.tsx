@@ -1,5 +1,5 @@
 import { mount, signal, computed, effect, cleanup, batch, View, Text, Input, Scroll, type YNode } from 'nsh';
-import { Animated, createNativeValue } from 'nsh/animated';
+import { Animated, createAnimatedValue } from 'nsh/animated';
 import { reduceMotion } from 'nsh/accessibility';
 import { Window, titleBar } from 'nsh/desktop';
 import { keymap } from 'nsh/keymap';
@@ -41,9 +41,9 @@ function App() {
   function markAtPointer(){const nodes=Array.from(hovered().values()).sort((a,b)=>b.path.length-a.path.length);toggleMark(nodes[0] || (pointerInMap()?null:selection()));}
   const frame = signal({ width: 700, height: 520 }, { equals: (a,b)=>a.width===b.width && a.height===b.height });
   const zoom = signal(1);
-  const cameraScale=createNativeValue(1);
-  const cameraX=createNativeValue(0);
-  const cameraY=createNativeValue(0);
+  const cameraScale=createAnimatedValue(1);
+  const cameraX=createAnimatedValue(0);
+  const cameraY=createAnimatedValue(0);
   const boundedScale=cameraScale.interpolate({inputRange:[1,8],outputRange:[1,8]});
   const cameraTransform=computed(()=>{
     const maxX=boundedScale.sub(1).mul(frame().width/2);
@@ -60,9 +60,9 @@ function App() {
   function viewParameters(id:string|undefined,folder:string,offset=page()) {
     return {id,path:folder,offset,query:query(),hidden:hidden(),metric:metric(),levels:detailLevels()};
   }
-  const entrance = createNativeValue(0);
-  const sweep = createNativeValue(0);
-  const panelReveal = createNativeValue(1);
+  const entrance = createAnimatedValue(0);
+  const sweep = createAnimatedValue(0);
+  const panelReveal = createAnimatedValue(1);
   effect(() => {
     if (reduceMotion()) entrance.set(1);
     else void entrance.timing(1, { duration: 680, easing: [0.16,1,0.3,1] });
@@ -216,17 +216,17 @@ function App() {
                 <View onLayout={e=>{crumbWidth=e.width;scrollCrumbs();}} style={{flexDirection:'row',alignItems:'center',gap:3}}>
                   <Each of={crumbs()}>{(n,i)=><View style={{flexDirection:'row',alignItems:'center',gap:3}}>
                     <If when={i()>0}><Text pointerEvents="none" style={{fontFamily:mono,fontSize:12,color:C.muted}}>›</Text></If>
-                    <View desktop={{windowDrag:false}} accessibilityRole="button" accessibilityLabel={`Go to ${n().path}`} accessibilityState={{disabled:busy() || browseBusy() || n().path===current()?.path}} onPress={()=>{if(n().path!==current()?.path)navigate(n().path);}} class="hover:brightness-125" style={{padding:6,borderRadius:3,cursor:n().path===current()?.path?'default':'pointer'}}>
+                    <View desktop={{windowDrag:false}} role="button" accessibilityLabel={`Go to ${n().path}`} accessibilityState={{disabled:busy() || browseBusy() || n().path===current()?.path}} onPress={()=>{if(n().path!==current()?.path)navigate(n().path);}} class="hover:brightness-125" style={{padding:6,borderRadius:3,cursor:n().path===current()?.path?'default':'pointer'}}>
                       <Text pointerEvents="none" numberOfLines={1} style={{fontFamily:mono,fontSize:12,maxWidth:180,color:n().path===current()?.path?C.text:C.amber}}>{n().name}</Text>
                     </View>
                   </View>}</Each>
                 </View>
               </Scroll>
             </If>
-            <If when={editingPath()}><Input ref={node=>{pathField=node;node.focus();}} accessibilityLabel="Folder path" value={draftPath()} onChangeText={v=>draftPath.set(v)} onSubmitEditing={()=>{editingPath.set(false);void scan(draftPath());}} autoCorrect={false} autoCapitalize="none" style={{fontFamily:mono,color:C.text,fontSize:12,padding:8,backgroundColor:'#09090b'}}/></If>
+            <If when={editingPath()}><Input ref={node=>{pathField=node;node.focus();}} accessibilityLabel="Folder path" value={draftPath()} onChange={v=>draftPath.set(v)} onSubmit={()=>{editingPath.set(false);void scan(draftPath());}} autoCorrect={false} autoCapitalize="none" style={{fontFamily:mono,color:C.text,fontSize:12,padding:8,backgroundColor:'#09090b'}}/></If>
           </View>
           <Text style={{fontFamily:mono,fontSize:11,color:C.muted}}>{current()?`${formatSize(current()!.size)} · ${current()!.files.toLocaleString()} files`:''}{browseBusy()?' · Loading…':''}</Text>
-          <Input ref={node=>{filterField=node;}} value={query()} onChangeText={v=>batch(()=>{query.set(v);page.set(0);})} placeholder="Filter names…" placeholderTextColor={C.muted} style={{fontFamily:mono,width:130,fontSize:11,color:C.text,padding:6,backgroundColor:'#18181c',borderRadius:4}}/>
+          <Input ref={node=>{filterField=node;}} value={query()} onChange={v=>batch(()=>{query.set(v);page.set(0);})} placeholder="Filter names…" style={{placeholderColor:C.muted,fontFamily:mono,width:130,fontSize:11,color:C.text,padding:6,backgroundColor:'#18181c',borderRadius:4}}/>
         </View>
         <Scroll horizontal style={{height:20,flexGrow:0,flexShrink:0}}><View style={{flexDirection:'row',gap:13,alignItems:'center'}}><Each of={categories}>{category=><View style={{flexDirection:'row',alignItems:'center',gap:4}}><View style={{width:8,height:8,borderRadius:1,backgroundColor:category().color}}/><Text style={{fontFamily:mono,fontSize:10,color:C.muted}}>{category().label}</Text></View>}</Each></View></Scroll>
         <View testID="treemap" class="hover:opacity-100" onHoverIn={()=>{pointerInMap.set(true);pathField?.blur();filterField?.blur();}} onHoverOut={()=>{pointerInMap.set(false);hovered.set(new Map());}} pinch={{scale:cameraScale}} pan={{x:cameraX,y:cameraY}} onPinchEnd={()=>{void cameraScale.getValue().then(endPinch);}} onLayout={e=>frame.set({width:e.width,height:e.height})} style={{flex:1,overflow:'hidden',backgroundColor:'#050506',borderRadius:3}}>

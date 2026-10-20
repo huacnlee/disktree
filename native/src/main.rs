@@ -24,7 +24,7 @@ fn app_source() -> Result<String, Box<dyn std::error::Error>> {
             entry: root.join("App.tsx"),
             minify: false,
             split: false,
-            ui_sets: vec![disktree::__nsh_native_module()],
+            ui_sets: vec![disktree::__nsh_native_module().into()],
         })?
         .code)
     }

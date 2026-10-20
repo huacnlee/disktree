@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import shutil
+import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / '.build/cargo'
@@ -20,8 +22,24 @@ def prepare():
     # NSH's generated custom hosts use the source checkout's target directory.
     if not (source / 'target').exists():
         (source / 'target').symlink_to(target, target_is_directory=True)
+    # Newer CLIs infer registry dependencies from Git-based app manifests.
+    # Apply the app's Git source to their generated Cargo workspaces as well.
+    config = target / 'nsh-source.toml'
+    patches = []
+    for manifest in sorted((source / 'crates').glob('*/Cargo.toml')):
+        package = tomllib.loads(manifest.read_text()).get('package', {})
+        name = package.get('name', '')
+        if name.startswith('nsh-'):
+            patches.append(f'{name} = {{ path = {json.dumps(str(manifest.parent))} }}')
+    entries = '\n'.join(patches)
+    config.write_text(f'[patch.crates-io]\n{entries}\n\n[patch."https://github.com/longbridge/nsh.git"]\n{entries}\n')
+    wrapper = target / 'nsh-cargo'
+    cargo = shutil.which('cargo')
+    wrapper.write_text(f'#!{sys.executable}\nimport os, sys\nos.execv({cargo!r}, [{cargo!r}, "--config", {str(config)!r}, *sys.argv[1:]])\n')
+    wrapper.chmod(0o755)
     return {**os.environ, 'NSH_SOURCE': str(source),
-            'NSH_VERSION': runtime['version'], 'CARGO_TARGET_DIR': str(target)}
+            'NSH_VERSION': runtime['version'], 'CARGO_TARGET_DIR': str(target),
+            'CARGO': str(wrapper), 'NSH_CARGO': str(wrapper)}
 
 if __name__ == '__main__':
     environment = prepare()

@@ -96,7 +96,7 @@ cargo run
 
 The Rust launcher compiles the current TSX sources and opens the native window with the in-process scanner. Run again to load source changes. `./scripts/run.sh` forwards to the same command. Development and installed applications use the same native module; Python is used only for test and packaging tools.
 
-NSH dependencies follow Git `main`, with the resolved commit recorded in the root `Cargo.lock`. The optional NSH CLI workflow supports JSX hot reload and rebuilds the host on Rust changes. To use it, install the matching NSH CLI and run `python3 scripts/nsh_toolchain.py nsh run`; the helper resolves the source checkout through Cargo and sets `NSH_SOURCE` for the command.
+NSH dependencies follow Git `main`, with the resolved commit recorded in the root `Cargo.lock`. The optional NSH CLI workflow supports JSX hot reload and rebuilds the host on Rust changes. To use it, install the matching NSH CLI and run `python3 scripts/nsh_toolchain.py nsh run`; the helper resolves the source checkout through Cargo and configures generated hosts to use the same Git dependencies.
 
 Build a self-contained application with Rust, Python 3.11+ (packaging tools only), and Xcode Command Line Tools on macOS, or `clang libclang-dev libgtk-4-dev` on Linux:
 
