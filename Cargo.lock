@@ -2222,27 +2222,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "610a5acd306ec67f907abe5567859a3c693fb9886eb1f012ab8f2a47bef3db51"
 
 [[package]]
-name = "nsh-animation"
-version = "0.1.1"
-source = "git+https://github.com/longbridge/nsh.git?branch=main#35fffd9ba9c796ae669c2e214fc30ef0006d890a"
-
-[[package]]
 name = "nsh-base"
 version = "0.1.1"
-source = "git+https://github.com/longbridge/nsh.git?branch=main#35fffd9ba9c796ae669c2e214fc30ef0006d890a"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#9c7f6ef2b2d943677a7e87184ce583ffadc18116"
 dependencies = [
  "nsh-core",
+ "serde_json",
 ]
 
 [[package]]
 name = "nsh-bundler"
 version = "0.1.1"
-source = "git+https://github.com/longbridge/nsh.git?branch=main#35fffd9ba9c796ae669c2e214fc30ef0006d890a"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#9c7f6ef2b2d943677a7e87184ce583ffadc18116"
 dependencies = [
  "anyhow",
  "dunce",
  "imagesize",
  "log",
+ "nsh-base",
  "nsh-core",
  "nsh-js",
  "oxc",
@@ -2260,13 +2257,12 @@ dependencies = [
 [[package]]
 name = "nsh-core"
 version = "0.1.1"
-source = "git+https://github.com/longbridge/nsh.git?branch=main#35fffd9ba9c796ae669c2e214fc30ef0006d890a"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#9c7f6ef2b2d943677a7e87184ce583ffadc18116"
 dependencies = [
  "cap-std",
  "futures-util",
  "libc",
  "log",
- "nsh-animation",
  "nsh-macros",
  "rustc-hash",
  "serde",
@@ -2282,12 +2278,11 @@ dependencies = [
 [[package]]
 name = "nsh-engine"
 version = "0.1.1"
-source = "git+https://github.com/longbridge/nsh.git?branch=main#35fffd9ba9c796ae669c2e214fc30ef0006d890a"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#9c7f6ef2b2d943677a7e87184ce583ffadc18116"
 dependencies = [
  "crossbeam-channel",
  "libc",
  "log",
- "nsh-animation",
  "nsh-core",
  "nsh-js",
  "nsh-package",
@@ -2300,13 +2295,12 @@ dependencies = [
 [[package]]
 name = "nsh-js"
 version = "0.1.1"
-source = "git+https://github.com/longbridge/nsh.git?branch=main#35fffd9ba9c796ae669c2e214fc30ef0006d890a"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#9c7f6ef2b2d943677a7e87184ce583ffadc18116"
 dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "libc",
  "log",
- "nsh-animation",
  "nsh-core",
  "percent-encoding",
  "quickjs-jit",
@@ -2322,7 +2316,7 @@ dependencies = [
 [[package]]
 name = "nsh-macros"
 version = "0.1.1"
-source = "git+https://github.com/longbridge/nsh.git?branch=main#35fffd9ba9c796ae669c2e214fc30ef0006d890a"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#9c7f6ef2b2d943677a7e87184ce583ffadc18116"
 dependencies = [
  "imagesize",
  "proc-macro2",
@@ -2334,7 +2328,7 @@ dependencies = [
 [[package]]
 name = "nsh-package"
 version = "0.1.1"
-source = "git+https://github.com/longbridge/nsh.git?branch=main#35fffd9ba9c796ae669c2e214fc30ef0006d890a"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#9c7f6ef2b2d943677a7e87184ce583ffadc18116"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek 2.2.0",
@@ -2349,13 +2343,12 @@ dependencies = [
 [[package]]
 name = "nsh-platform-linux"
 version = "0.1.1"
-source = "git+https://github.com/longbridge/nsh.git?branch=main#35fffd9ba9c796ae669c2e214fc30ef0006d890a"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#9c7f6ef2b2d943677a7e87184ce583ffadc18116"
 dependencies = [
  "crossbeam-channel",
  "gtk4",
  "image",
  "log",
- "nsh-animation",
  "nsh-base",
  "nsh-core",
  "nsh-engine",
@@ -2370,14 +2363,13 @@ dependencies = [
 [[package]]
 name = "nsh-platform-macos"
 version = "0.1.1"
-source = "git+https://github.com/longbridge/nsh.git?branch=main#35fffd9ba9c796ae669c2e214fc30ef0006d890a"
+source = "git+https://github.com/longbridge/nsh.git?branch=main#9c7f6ef2b2d943677a7e87184ce583ffadc18116"
 dependencies = [
  "block2",
  "crossbeam-channel",
  "dispatch2",
  "libc",
  "log",
- "nsh-animation",
  "nsh-base",
  "nsh-core",
  "nsh-engine",
