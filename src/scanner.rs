@@ -1,7 +1,6 @@
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use serde_json::{Value, json};
 use std::{
-    collections::VecDeque,
     ffi::CString,
     fs::{self, Metadata},
     os::unix::{ffi::OsStrExt, fs::MetadataExt},
@@ -92,10 +91,8 @@ impl From<macos::Entry> for ScanMetadata {
 
 // Unsupported filesystems use the portable reader before any entry has been
 // emitted, so fallback cannot duplicate records or hard-link accounting.
-fn directory_entries(
-    path: &Path,
-    bulk: bool,
-) -> Result<Box<dyn Iterator<Item = Result<(PathBuf, ScanMetadata)>> + '_>> {
+type DirectoryEntries<'a> = Box<dyn Iterator<Item = Result<(PathBuf, ScanMetadata)>> + 'a>;
+fn directory_entries(path: &Path, bulk: bool) -> Result<DirectoryEntries<'_>> {
     #[cfg(target_os = "macos")]
     if bulk {
         let mut reader = macos::read_dir(path).map_err(io)?;
@@ -119,44 +116,12 @@ fn directory_entries(
     })))
 }
 
-#[derive(Clone, Debug)]
-struct Node {
-    // Share one path allocation with lookup keys and pending parent links.
-    path: Arc<str>,
-    name: String,
-    // Keep removal-time identity checks in the node, avoiding a second index.
-    record: Record,
-    directory: bool,
-    size: u64,
-    apparent: u64,
-    files: u64,
-    modified: f64,
-    children: Vec<Arc<Node>>,
-}
-impl Node {
-    fn shallow(&self) -> Value {
-        json!({"path":self.path,"name":self.name,"directory":self.directory,"size":self.size,
-            "apparent":self.apparent,"files":self.files,"modified":self.modified,"children":[]})
-    }
-    fn weight(&self, metric: &str) -> u64 {
-        match metric {
-            "apparent" => self.apparent,
-            "files" => self.files,
-            _ => self.size,
-        }
-    }
-}
-#[derive(Clone)]
-struct Index {
-    id: String,
-    root: Arc<Node>,
-    nodes: HashMap<Arc<str>, Arc<Node>>,
-    shared: HashSet<(u64, u64)>,
-}
+mod index;
+use index::{Index, NO_PARENT, Node, NodeId, Totals};
+
 struct Walker {
     device: u64,
-    seen: HashSet<(u64, u64)>,
-    nodes: HashMap<Arc<str>, Arc<Node>>,
+    index: Index,
     errors: Vec<String>,
     error_count: usize,
     progress: Option<Arc<Mutex<Value>>>,
@@ -274,108 +239,152 @@ impl Walker {
         if !force && self.last_progress.elapsed() < Duration::from_millis(100) {
             return;
         }
-        if let Some(progress) = &self.progress {
-            if let Ok(mut value) = progress.lock() {
-                *value = json!({"path":self.current_directory,"directories":self.directories,"files":self.files,"bytes":self.bytes,"errors":self.error_count,"percent":self.percent});
-            }
+        if let Some(progress) = &self.progress
+            && let Ok(mut value) = progress.lock()
+        {
+            *value = json!({"path":self.current_directory,"directories":self.directories,"files":self.files,"bytes":self.bytes,"errors":self.error_count,"percent":self.percent});
         }
         self.last_progress = Instant::now();
     }
-    fn collect(
-        &mut self,
-        path: PathBuf,
-        meta: ScanMetadata,
-        raw: &mut HashMap<Arc<str>, PendingNode>,
-    ) {
-        let text: Arc<str> = Arc::from(path.to_str().expect("validated UTF-8 path"));
+    fn new(device: u64, root: &str, progress: Option<Arc<Mutex<Value>>>) -> Result<Self> {
+        Ok(Self {
+            device,
+            index: Index::new(root)?,
+            errors: vec![],
+            error_count: 0,
+            progress,
+            last_progress: Instant::now() - Duration::from_millis(100),
+            directories: 0,
+            files: 0,
+            bytes: 0,
+            current_directory: String::new(),
+            percent: 0,
+        })
+    }
+    fn add(&mut self, path: &Path, meta: ScanMetadata, parent: NodeId) -> Result<NodeId> {
+        let name = path
+            .file_name()
+            .map(|n| n.to_str().expect("validated UTF-8 path"))
+            .unwrap_or("/")
+            .to_owned();
         let mut node = Node {
-            name: path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "/".into()),
-            path: text.clone(),
             record: meta.record.clone(),
+            name,
+            parent,
             directory: meta.directory,
+            linked: meta.links > 1 && meta.file,
             size: 0,
             apparent: 0,
             files: 0,
-            modified: meta.record.modified as f64 + meta.record.nanos as f64 / 1e9,
-            children: vec![],
         };
         if meta.record.device == self.device && !meta.symlink {
             if meta.file {
                 self.files += 1;
-                let parent = path.parent().unwrap_or(&path).to_string_lossy();
+                let parent = path.parent().unwrap_or(path).to_string_lossy();
                 if self.current_directory != parent {
                     self.current_directory = parent.into_owned();
                 }
                 node.files = 1;
-                if meta.links <= 1 || self.seen.insert((meta.record.device, meta.record.inode)) {
+                if meta.links <= 1
+                    || self
+                        .index
+                        .find_link(meta.record.device, meta.record.inode)?
+                        .is_none()
+                {
                     node.size = meta.allocated;
                     node.apparent = meta.record.size;
                     self.bytes += node.size;
                 }
             } else if meta.directory {
                 self.directories += 1;
-                self.current_directory = text.to_string();
+                self.current_directory = path.to_string_lossy().into_owned();
                 if meta.evicted {
-                    self.error(format!("{text}: cloud-only (skipped)"));
+                    self.error(format!("{}: cloud-only (skipped)", path.display()));
                 }
             }
         }
-        let parent = path
-            .parent()
-            .and_then(|p| p.to_str())
-            .and_then(|p| raw.get_mut(p));
-        if node.directory {
-            if let Some(parent) = parent {
-                parent.children.push(text.clone());
-            }
-            raw.insert(
-                text,
-                PendingNode {
-                    node,
-                    children: vec![],
-                },
-            );
-        } else {
-            // Leaves are already complete. Attach them now instead of keeping
-            // another path-keyed node and looking it up again during assembly.
-            let node = Arc::new(node);
-            if let Some(parent) = parent {
-                parent.node.size += node.size;
-                parent.node.apparent += node.apparent;
-                parent.node.files += node.files;
-                parent.node.children.push(node.clone());
-            }
-            self.nodes.insert(text, node);
-        }
+        let id = self.index.insert(node)?;
         self.publish_progress(false);
+        Ok(id)
     }
-    fn assemble(&mut self, path: &str, raw: &mut HashMap<Arc<str>, PendingNode>) -> Arc<Node> {
-        let PendingNode { mut node, children } = raw.remove(path).expect("enumerated node");
-        for child in children {
-            let child = self.assemble(&child, raw);
-            node.size += child.size;
-            node.apparent += child.apparent;
-            node.files += child.files;
-            node.children.push(child);
+    #[cfg(test)]
+    fn collect(
+        &mut self,
+        path: PathBuf,
+        meta: ScanMetadata,
+        directories: &mut HashMap<PathBuf, NodeId>,
+    ) -> Result<()> {
+        let parent = if self.index.live == 0 {
+            NO_PARENT
+        } else {
+            *directories
+                .get(path.parent().ok_or("Missing scan parent")?)
+                .ok_or("Missing scan parent")?
+        };
+        let directory = meta.directory;
+        let id = self.add(&path, meta, parent)?;
+        if directory {
+            directories.insert(path, id);
         }
-        node.children
-            .sort_by(|a, b| b.size.cmp(&a.size).then(a.name.cmp(&b.name)));
-        let node = Arc::new(node);
-        self.nodes.insert(node.path.clone(), node.clone());
-        node
+        Ok(())
     }
-}
-struct PendingNode {
-    node: Node,
-    children: Vec<Arc<str>>,
 }
 struct DirectoryQueue {
-    paths: VecDeque<PathBuf>,
-    active: usize,
+    db: rusqlite::Connection,
+    pending: u64,
+    active: u64,
     completed: u64,
+    cancelled: bool,
+}
+impl DirectoryQueue {
+    fn new(root: &Path) -> Result<Self> {
+        let db = index::temporary_database(1024)?;
+        db.execute_batch("CREATE TABLE queue (id INTEGER PRIMARY KEY,path TEXT NOT NULL); BEGIN;")
+            .map_err(io)?;
+        let mut queue = Self {
+            db,
+            pending: 0,
+            active: 0,
+            completed: 0,
+            cancelled: false,
+        };
+        queue.push(0, root)?;
+        Ok(queue)
+    }
+    fn push(&mut self, id: NodeId, path: &Path) -> Result<()> {
+        self.db
+            .prepare_cached("INSERT INTO queue VALUES (?1,?2)")
+            .map_err(io)?
+            .execute(rusqlite::params![
+                id,
+                path.to_str().ok_or("Invalid scan path")?
+            ])
+            .map_err(io)?;
+        self.pending += 1;
+        Ok(())
+    }
+    fn pop(&mut self) -> Result<Option<(NodeId, PathBuf)>> {
+        use rusqlite::OptionalExtension;
+        let next: Option<(NodeId, String)> = self
+            .db
+            .prepare_cached("SELECT id,path FROM queue ORDER BY id DESC LIMIT 1")
+            .map_err(io)?
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .optional()
+            .map_err(io)?;
+        if let Some((id, path)) = next {
+            self.db
+                .prepare_cached("DELETE FROM queue WHERE id=?1")
+                .map_err(io)?
+                .execute([id])
+                .map_err(io)?;
+            self.pending -= 1;
+            self.active += 1;
+            Ok(Some((id, PathBuf::from(path))))
+        } else {
+            Ok(None)
+        }
+    }
 }
 // Directory discovery changes the denominator; keep the estimate monotonic and
 // reserve 100% for the fully reduced and assembled tree.
@@ -392,22 +401,14 @@ type Entries = Vec<(PathBuf, Result<ScanMetadata>)>;
 
 // A fixed number of directory readers feeds bounded batches to one reducer.
 // Only the reducer owns the index, hard-link set, and progress counters.
-fn read_directories(
-    path: &Path,
-    workers: usize,
-    bulk: bool,
-    walker: &mut Walker,
-    raw: &mut HashMap<Arc<str>, PendingNode>,
-) {
-    let queue = (
-        Mutex::new(DirectoryQueue {
-            paths: VecDeque::from([path.to_owned()]),
-            active: 0,
-            completed: 0,
-        }),
-        Condvar::new(),
-    );
-    let (sender, receiver) = mpsc::sync_channel::<Entries>(workers * 2);
+fn read_directories(path: &Path, workers: usize, bulk: bool, walker: &mut Walker) -> Result<()> {
+    enum Event {
+        Entries(NodeId, Entries),
+        Done,
+        Error(String),
+    }
+    let queue = (Mutex::new(DirectoryQueue::new(path)?), Condvar::new());
+    let (sender, receiver) = mpsc::sync_channel::<Event>(workers * 2);
     let device = walker.device;
     std::thread::scope(|scope| {
         for _ in 0..workers {
@@ -415,96 +416,108 @@ fn read_directories(
             let queue = &queue;
             scope.spawn(move || {
                 loop {
-                    let directory = {
+                    let (parent, directory) = {
                         let mut state = queue.0.lock().unwrap();
                         loop {
-                            if let Some(path) = state.paths.pop_front() {
-                                state.active += 1;
-                                break path;
-                            }
-                            if state.active == 0 {
+                            if state.cancelled {
                                 return;
                             }
-                            state = queue.1.wait(state).unwrap();
+                            match state.pop() {
+                                Ok(Some(next)) => break next,
+                                Ok(None) if state.active == 0 => return,
+                                Ok(None) => state = queue.1.wait(state).unwrap(),
+                                Err(error) => {
+                                    drop(state);
+                                    let _ = sender.send(Event::Error(error));
+                                    return;
+                                }
+                            }
                         }
                     };
                     let mut batch = Vec::with_capacity(128);
-                    let mut directories = Vec::new();
-                    let flush = |batch: &mut Entries, directories: &mut Vec<PathBuf>| {
-                        if batch.is_empty() {
-                            return;
-                        }
-                        // Publish a directory's metadata before scheduling its children:
-                        // the reducer can always attach entries to an existing parent.
-                        if sender
-                            .send(std::mem::replace(batch, Vec::with_capacity(128)))
-                            .is_err()
-                        {
-                            return;
-                        }
-                        if !directories.is_empty() {
-                            let mut state = queue.0.lock().unwrap();
-                            state.paths.extend(directories.drain(..));
-                            queue.1.notify_all();
-                        }
-                    };
                     match directory_entries(&directory, bulk) {
                         Err(error) => batch.push((directory.clone(), Err(error))),
                         Ok(entries) => {
                             for entry in entries {
-                                let (path, metadata) = match entry {
+                                let entry = match entry {
+                                    Ok((path, meta)) if path.to_str().is_some() => (path, Ok(meta)),
+                                    Ok((path, _)) => {
+                                        (path, Err("Path is not valid UTF-8 (skipped)".into()))
+                                    }
                                     Err(error) => (directory.clone(), Err(error)),
-                                    Ok((path, metadata)) => {
-                                        let metadata = if path.to_str().is_none() {
-                                            Err("Path is not valid UTF-8 (skipped)".into())
-                                        } else {
-                                            Ok(metadata)
-                                        };
-                                        (path, metadata)
-                                    }
                                 };
-                                if let Ok(meta) = &metadata {
-                                    if meta.directory
-                                        && meta.record.device == device
-                                        && !meta.symlink
-                                        && !meta.evicted
-                                    {
-                                        directories.push(path.clone());
-                                    }
-                                }
-                                batch.push((path, metadata));
-                                if batch.len() == 128 {
-                                    flush(&mut batch, &mut directories);
+                                batch.push(entry);
+                                if batch.len() == 128
+                                    && sender
+                                        .send(Event::Entries(
+                                            parent,
+                                            std::mem::replace(&mut batch, Vec::with_capacity(128)),
+                                        ))
+                                        .is_err()
+                                {
+                                    return;
                                 }
                             }
                         }
                     }
-                    flush(&mut batch, &mut directories);
-                    let mut state = queue.0.lock().unwrap();
-                    state.active -= 1;
-                    state.completed += 1;
-                    queue.1.notify_all();
+                    if !batch.is_empty() && sender.send(Event::Entries(parent, batch)).is_err() {
+                        return;
+                    }
+                    if sender.send(Event::Done).is_err() {
+                        return;
+                    }
                 }
             });
         }
         drop(sender);
-        for batch in receiver {
-            {
-                let state = queue.0.lock().unwrap();
+        let result = (|| {
+            for event in receiver {
+                match event {
+                    Event::Error(error) => return Err(error),
+                    Event::Done => {
+                        // Completion is reduced after all that directory's
+                        // batches, so readers cannot exit before children have
+                        // been assigned IDs and added to the disk queue.
+                        let mut state = queue.0.lock().map_err(io)?;
+                        state.active -= 1;
+                        state.completed += 1;
+                        queue.1.notify_all();
+                    }
+                    Event::Entries(parent, batch) => {
+                        for (path, metadata) in batch {
+                            match metadata {
+                                Err(error) => walker.error(format!("{}: {error}", path.display())),
+                                Ok(meta) => {
+                                    let descend = meta.directory
+                                        && meta.record.device == device
+                                        && !meta.symlink
+                                        && !meta.evicted;
+                                    let id = walker.add(&path, meta, parent)?;
+                                    if descend {
+                                        queue.0.lock().map_err(io)?.push(id, &path)?;
+                                        queue.1.notify_one();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let state = queue.0.lock().map_err(io)?;
                 walker.percent = scan_percent(
                     walker.percent,
                     state.completed,
-                    state.paths.len() as u64 + state.active as u64,
+                    state.pending + state.active,
                 );
             }
-            for (path, metadata) in batch {
-                match metadata {
-                    Ok(meta) => walker.collect(path, meta, raw),
-                    Err(error) => walker.error(format!("{}: {error}", path.display())),
-                }
-            }
+            Ok(())
+        })();
+        if result.is_err() {
+            let mut state = queue.0.lock().unwrap();
+            state.cancelled = true;
+            queue.1.notify_all();
         }
-    });
+        result
+    })
 }
 
 #[cfg(test)]
@@ -539,26 +552,12 @@ fn scan_with_reader(
     }
     let root_path = path.to_str().ok_or("Path is not valid UTF-8 (skipped)")?;
     let skip_root = cloud_only(&meta);
-    let mut walker = Walker {
-        device: meta.dev(),
-        seen: HashSet::default(),
-        nodes: HashMap::default(),
-        errors: vec![],
-        error_count: 0,
-        progress,
-        last_progress: Instant::now() - Duration::from_millis(100),
-        directories: 0,
-        files: 0,
-        bytes: 0,
-        current_directory: String::new(),
-        percent: 0,
-    };
-    let mut raw = HashMap::default();
-    walker.collect(path.to_owned(), meta.into(), &mut raw);
+    let mut walker = Walker::new(meta.dev(), root_path, progress)?;
+    walker.add(path, meta.into(), NO_PARENT)?;
     if !skip_root {
-        read_directories(path, workers.max(1), bulk, &mut walker, &mut raw);
+        read_directories(path, workers.max(1), bulk, &mut walker)?;
     }
-    let root = walker.assemble(root_path, &mut raw);
+    walker.index.finish()?;
     walker.percent = 100;
     walker.publish_progress(true);
     let (total, free) = disk_usage(path)?;
@@ -567,50 +566,56 @@ fn scan_with_reader(
         std::process::id(),
         NEXT_ID.fetch_add(1, Ordering::Relaxed)
     );
-    let response = json!({"id":id,"root":root.shallow(),"total":total,"free":free,"errors":walker.errors,"errorCount":walker.error_count});
-    let index = Arc::new(Index {
-        id,
-        root,
-        nodes: walker.nodes,
-        shared: walker.seen,
-    });
-    Ok((index, response))
+    let response = json!({"id":id,"root":walker.index.shallow(0)?,"total":total,"free":free,"errors":walker.errors,"errorCount":walker.error_count});
+    walker.index.id = id;
+    Ok((Arc::new(walker.index), response))
 }
-fn aggregate(items: &[Arc<Node>], path: String, name: String) -> Value {
-    json!({"path":path,"name":name,"directory":false,"size":items.iter().map(|n|n.size).sum::<u64>(),
-        "apparent":items.iter().map(|n|n.apparent).sum::<u64>(),"files":items.iter().map(|n|n.files).sum::<u64>(),
-        "modified":0,"children":[],"aggregate":true})
+
+fn aggregate(total: Totals, path: String, name: String) -> Value {
+    json!({"path":path,"name":name,"directory":false,"size":total.size,"apparent":total.apparent,
+        "files":total.files,"modified":0,"children":[],"aggregate":true})
 }
 fn bounded(
-    items: &[Arc<Node>],
+    index: &Index,
+    items: &[NodeId],
+    total: Totals,
     depth: usize,
     levels: usize,
     budget: &mut usize,
     path: &str,
-) -> Vec<Value> {
+) -> Result<Vec<Value>> {
     let selected = items.len().min(budget.saturating_sub(1));
     *budget -= selected;
-    let mut output: Vec<_> = items[..selected].iter().map(|n| n.shallow()).collect();
-    if selected < items.len() {
+    let weights = index.weights(&items[..selected])?;
+    let rest = total.minus(weights);
+    let mut output = items[..selected]
+        .iter()
+        .map(|id| index.shallow(*id))
+        .collect::<Result<Vec<_>>>()?;
+    if rest.count > 0 {
         *budget -= 1;
         output.push(aggregate(
-            &items[selected..],
+            rest,
             format!("{path}/#remaining-{depth}-{budget}"),
-            format!("{} more items", items.len() - selected),
+            format!("{} more items", rest.count),
         ));
     }
-    for (item, node) in output[..selected].iter_mut().zip(items) {
-        if !node.children.is_empty() && depth < levels && *budget > 1 {
+    for (item, id) in output[..selected].iter_mut().zip(items) {
+        if index.node(*id)?.directory && depth < levels && *budget > 1 {
+            let (children, total) =
+                index.listing(*id, true, "", "size", 0, budget.saturating_sub(1))?;
             item["children"] = json!(bounded(
-                &node.children,
+                index,
+                &children,
+                total,
                 depth + 1,
                 levels,
                 budget,
-                &node.path
-            ));
+                &index.path(*id)?
+            )?);
         }
     }
-    output
+    Ok(output)
 }
 fn string<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
     value[key].as_str().ok_or_else(|| format!("Missing {key}"))
@@ -619,16 +624,17 @@ fn inside(path: &str, parent: &str) -> bool {
     path != parent && Path::new(path).starts_with(parent)
 }
 fn view(index: &Index, data: &Value) -> Result<Value> {
+    let _access = index.access.lock().map_err(io)?;
     let mut path = string(data, "path")?.to_owned();
     let metric = data["metric"].as_str().unwrap_or("size");
     if !["size", "apparent", "files"].contains(&metric) {
         return Err("Invalid metric".into());
     }
     if data["fallback"].as_bool().unwrap_or(false) {
-        if path != index.root.path.as_ref() && !inside(&path, &index.root.path) {
+        if path != index.root_path && !inside(&path, &index.root_path) {
             return Err("Directory is outside the scan".into());
         }
-        while !index.nodes.contains_key(path.as_str()) && path != index.root.path.as_ref() {
+        while index.lookup(&path)?.is_none() && path != index.root_path {
             path = Path::new(&path)
                 .parent()
                 .ok_or("Directory is outside the scan")?
@@ -636,64 +642,42 @@ fn view(index: &Index, data: &Value) -> Result<Value> {
                 .into_owned();
         }
     }
-    let node = index
-        .nodes
-        .get(path.as_str())
+    let id = index
+        .lookup(&path)?
         .ok_or("Directory no longer exists. Scan again.")?;
-    if !node.directory {
+    if !index.node(id)?.directory {
         return Err("Choose a directory".into());
     }
     let query = data["query"].as_str().unwrap_or("").to_lowercase();
     let hidden = data["hidden"].as_bool().unwrap_or(true);
-    let mut children: Vec<_> = node
-        .children
-        .iter()
-        .filter(|n| (hidden || !n.name.starts_with('.')) && n.name.to_lowercase().contains(&query))
-        .cloned()
-        .collect();
-    children.sort_by(|a, b| {
-        b.weight(metric)
-            .cmp(&a.weight(metric))
-            .then(a.name.cmp(&b.name))
-    });
-    let offset = (data["offset"].as_u64().unwrap_or(0) as usize)
-        .min(children.len().saturating_sub(1) / PAGE_SIZE * PAGE_SIZE);
-    let end = (offset + PAGE_SIZE).min(children.len());
-    let page = &children[offset..end];
+    let requested = data["offset"].as_u64().unwrap_or(0) as usize;
+    let (page, total) = index.listing(id, hidden, &query, metric, requested, PAGE_SIZE)?;
+    let offset = requested.min(total.count.saturating_sub(1) / PAGE_SIZE * PAGE_SIZE);
     let levels = data["levels"].as_u64().unwrap_or(2).clamp(1, 3) as usize;
     let mut budget = MAP_BUDGET;
-    let mut tiles = bounded(page, 1, levels, &mut budget, &path);
-    let rest: Vec<_> = children[..offset]
-        .iter()
-        .chain(children[end..].iter())
-        .cloned()
-        .collect();
-    if !rest.is_empty() {
+    let page_weights = index.weights(&page)?;
+    let mut tiles = bounded(index, &page, page_weights, 1, levels, &mut budget, &path)?;
+    let rest = total.minus(page_weights);
+    if rest.count > 0 {
         tiles.push(aggregate(
-            &rest,
+            rest,
             format!("{path}/#other-pages"),
-            format!("{} items on other pages", rest.len()),
+            format!("{} items on other pages", rest.count),
         ));
     }
     let mut ancestors = vec![];
-    let mut cursor = Path::new(&path);
+    let mut cursor = id;
     loop {
-        ancestors.push(
-            index
-                .nodes
-                .get(cursor.to_str().ok_or("Invalid path")?)
-                .ok_or("Missing ancestor")?
-                .shallow(),
-        );
-        if cursor == Path::new(index.root.path.as_ref()) {
+        ancestors.push(index.shallow(cursor)?);
+        if cursor == 0 {
             break;
         }
-        cursor = cursor.parent().ok_or("Missing ancestor")?;
+        cursor = index.node(cursor)?.parent;
     }
     ancestors.reverse();
     Ok(
-        json!({"node":node.shallow(),"children":page.iter().map(|n|n.shallow()).collect::<Vec<_>>(),"map":tiles,
-        "ancestors":ancestors,"offset":offset,"count":children.len(),"pageSize":PAGE_SIZE}),
+        json!({"node":index.shallow(id)?,"children":page.iter().map(|id|index.shallow(*id)).collect::<Result<Vec<_>>>()?,
+        "map":tiles,"ancestors":ancestors,"offset":offset,"count":total.count,"pageSize":PAGE_SIZE}),
     )
 }
 fn validate_removal(index: &Index, paths: &[String], permanent: bool) -> Result<()> {
@@ -701,46 +685,42 @@ fn validate_removal(index: &Index, paths: &[String], permanent: bool) -> Result<
         return Err("Nothing marked".into());
     }
     for path in paths {
-        if !inside(path, &index.root.path) || !index.nodes.contains_key(path.as_str()) {
-            return Err("Only scanned descendants can be removed".into());
-        }
+        let id = index
+            .lookup(path)?
+            .filter(|id| *id != 0)
+            .ok_or("Only scanned descendants can be removed")?;
         if paths.iter().any(|other| inside(path, other)) {
             return Err("Overlapping selections".into());
         }
         let current = fs::symlink_metadata(path).map_err(io)?;
-        if Record::from(&current) != index.nodes[path.as_str()].record {
+        if Record::from(&current) != index.node(id)?.record {
             return Err("Selection changed since scan. Scan again before removing it.".into());
         }
-        let mut parent = Path::new(path).parent();
-        while let Some(p) = parent {
-            let meta = fs::symlink_metadata(p).map_err(io)?;
-            let old = &index
-                .nodes
-                .get(p.to_str().ok_or("Invalid path")?)
-                .ok_or("Directory changed. Scan again.")?
-                .record;
+        let mut parent = index.node(id)?.parent;
+        loop {
+            let meta = fs::symlink_metadata(index.path(parent)?).map_err(io)?;
+            let old = index.node(parent)?.record;
             if meta.file_type().is_symlink() || meta.dev() != old.device || meta.ino() != old.inode
             {
                 return Err("Directory changed. Scan again.".into());
             }
-            if p == Path::new(index.root.path.as_ref()) {
+            if parent == 0 {
                 break;
             }
-            parent = p.parent();
+            parent = index.node(parent)?.parent;
         }
-        for (descendant, node) in &index.nodes {
-            let old = &node.record;
-            if descendant.as_ref() == path || inside(descendant, path) {
-                if permanent && old.device != index.root.record.device {
-                    return Err("Cannot permanently delete across mounted volumes".into());
-                }
-                let meta = fs::symlink_metadata(descendant.as_ref()).map_err(io)?;
-                if Record::from(&meta) != *old {
-                    return Err(
-                        "Contents changed since scan. Scan again before removing them.".into(),
-                    );
-                }
+        let root_device = index.root()?.record.device;
+        let mut pending = vec![id];
+        while let Some(id) = pending.pop() {
+            let old = index.node(id)?.record;
+            if permanent && old.device != root_device {
+                return Err("Cannot permanently delete across mounted volumes".into());
             }
+            let meta = fs::symlink_metadata(index.path(id)?).map_err(io)?;
+            if Record::from(&meta) != old {
+                return Err("Contents changed since scan. Scan again before removing them.".into());
+            }
+            pending.extend(index.children(id)?);
         }
     }
     Ok(())
@@ -776,6 +756,7 @@ fn execute(cmd: &mut Command) -> Result<()> {
     }
 }
 fn remove(index: &Index, data: &Value, permanent: bool) -> Result<Value> {
+    let _access = index.access.lock().map_err(io)?;
     let mut unique = HashSet::default();
     let paths: Vec<String> = data["paths"]
         .as_array()
@@ -818,189 +799,159 @@ fn execute_removals(
     Ok(json!({"completed":completed}))
 }
 
-fn mark_ancestors(index: &Index, path: &str, dirty: &mut HashSet<String>) {
-    let mut cursor = Path::new(path).parent();
-    while let Some(parent) = cursor.and_then(Path::to_str) {
-        if !index.nodes.contains_key(parent) {
-            break;
-        }
-        dirty.insert(parent.to_owned());
-        if parent == index.root.path.as_ref() {
-            break;
-        }
-        cursor = Path::new(parent).parent();
+fn mark_ancestors(index: &Index, id: NodeId, dirty: &mut HashSet<NodeId>) -> Result<()> {
+    let mut parent = index.node(id)?.parent;
+    while parent != NO_PARENT {
+        dirty.insert(parent);
+        parent = index.node(parent)?.parent;
     }
+    Ok(())
 }
-
-// Edit only known removed subtrees and their ancestors. No filesystem walk or
-// new scan ID is needed; unrelated branches retain their existing Arc<Node>.
-fn prune_removed(index: &mut Index, completed: &[String]) {
-    let mut removed = HashSet::default();
+fn prune_removed(index: &mut Index, completed: &[String]) -> Result<()> {
+    let access = index.access.clone();
+    let _access = access.lock().map_err(io)?;
+    index.db()?.execute_batch("BEGIN;").map_err(io)?;
+    let original_live = index.live;
+    let result = prune_entries(index, completed);
+    if result.is_err() {
+        index.live = original_live;
+        let _ = index.db()?.execute_batch("ROLLBACK;");
+    } else {
+        index
+            .db()?
+            .execute_batch("COMMIT; PRAGMA shrink_memory;")
+            .map_err(io)?;
+    }
+    result
+}
+fn prune_entries(index: &mut Index, completed: &[String]) -> Result<()> {
     let mut dirty = HashSet::default();
     let mut parents = HashSet::default();
     let mut lost_owners = HashMap::default();
-    let mut pending: Vec<_> = completed
-        .iter()
-        .filter_map(|p| index.nodes.get(p.as_str()).cloned())
-        .collect();
+    let mut pending = vec![];
     for path in completed {
-        mark_ancestors(index, path, &mut dirty);
-        if let Some(parent) = Path::new(path).parent().and_then(Path::to_str) {
-            parents.insert(parent.to_owned());
+        if let Some(id) = index.lookup(path)?.filter(|id| *id != 0) {
+            mark_ancestors(index, id, &mut dirty)?;
+            parents.insert(index.node(id)?.parent);
+            pending.push(id);
         }
     }
-    while let Some(node) = pending.pop() {
-        if !removed.insert(node.path.clone()) {
-            continue;
-        }
-        {
-            let record = &node.record;
-            let identity = (record.device, record.inode);
-            if !node.directory
-                && index.shared.contains(&identity)
-                && (node.size > 0 || node.apparent > 0)
-            {
-                lost_owners.insert(identity, (node.size, node.apparent));
-            }
-        }
-        pending.extend(node.children.iter().cloned());
-        index.nodes.remove(&node.path);
-    }
-    // A hard link can survive outside a removed subtree. Transfer accounting
-    // from a removed owner to one surviving name, without statting that tree.
-    let mut transfers = vec![];
-    if !lost_owners.is_empty() {
-        for (path, node) in &index.nodes {
-            let record = &node.record;
-            if let Some(weights) = lost_owners.remove(&(record.device, record.inode)) {
-                transfers.push((path.clone(), weights));
-                if lost_owners.is_empty() {
-                    break;
-                }
-            }
-        }
-    }
-    for (path, (size, apparent)) in transfers {
-        if let Some(node) = index.nodes.get_mut(path.as_ref()) {
-            let node = Arc::make_mut(node);
-            node.size = size;
-            node.apparent = apparent;
-        }
-        mark_ancestors(index, &path, &mut dirty);
-    }
-    let mut dirty: Vec<_> = dirty.into_iter().collect();
-    dirty.sort_by_key(|path| std::cmp::Reverse(path.len()));
-    for path in dirty {
-        let Some(old) = index.nodes.get(path.as_str()) else {
+    while let Some(id) = pending.pop() {
+        let Some(node) = index.node_optional(id)? else {
             continue;
         };
-        let mut node = (**old).clone();
-        node.children = old
-            .children
-            .iter()
-            .filter_map(|child| index.nodes.get(&child.path).cloned())
-            .collect();
-        node.size = node.children.iter().map(|child| child.size).sum();
-        node.apparent = node.children.iter().map(|child| child.apparent).sum();
-        node.files = node.children.iter().map(|child| child.files).sum();
-        node.children
-            .sort_by(|a, b| b.size.cmp(&a.size).then(a.name.cmp(&b.name)));
-        // Our removal changes the direct parent's mtime. Refresh its record
-        // only if the surviving immediate names still match the cached tree;
-        // an unrelated new entry must continue to invalidate later deletion.
-        if parents.contains(&path) {
-            if let (Some(old_record), Ok(meta)) = (
-                index.nodes.get(path.as_str()).map(|n| &n.record),
-                fs::symlink_metadata(&path),
-            ) {
-                let current = Record::from(&meta);
-                let expected: HashSet<_> = node
-                    .children
-                    .iter()
-                    .map(|child| child.path.as_ref())
-                    .collect();
-                let matches = fs::read_dir(&path)
-                    .ok()
-                    .and_then(|entries| {
-                        entries
-                            .map(|entry| entry.map(|e| e.path()).map_err(io))
-                            .collect::<Result<Vec<_>>>()
-                            .ok()
-                    })
-                    .is_some_and(|entries| {
-                        entries.len() == expected.len()
-                            && entries
-                                .iter()
-                                .all(|p| p.to_str().is_some_and(|p| expected.contains(p)))
-                    });
-                if meta.is_dir()
-                    && !meta.file_type().is_symlink()
-                    && current.device == old_record.device
-                    && current.inode == old_record.inode
-                    && matches
-                    && fs::symlink_metadata(&path)
-                        .is_ok_and(|after| Record::from(&after) == current)
-                {
-                    node.modified = current.modified as f64 + current.nanos as f64 / 1e9;
-                    node.record = current;
-                }
-            }
+        if node.linked && (node.size > 0 || node.apparent > 0) {
+            lost_owners.insert(
+                (node.record.device, node.record.inode),
+                (node.size, node.apparent),
+            );
         }
-        index.nodes.insert(node.path.clone(), Arc::new(node));
+        pending.extend(index.children(id)?);
+        index.delete(id)?;
     }
-    index.root = index.nodes[&index.root.path].clone();
+    for ((device, inode), (size, apparent)) in lost_owners {
+        if let Some(id) = index.find_link(device, inode)? {
+            index.set_weights(id, size, apparent)?;
+            mark_ancestors(index, id, &mut dirty)?;
+        }
+    }
+    let mut dirty: Vec<_> = dirty.into_iter().collect();
+    dirty.sort_unstable_by(|a, b| b.cmp(a));
+    for id in dirty {
+        if index.node_optional(id)?.is_none() {
+            continue;
+        }
+        index.reduce(id)?;
+        if parents.contains(&id) {
+            refresh_parent_record(index, id)?;
+        }
+    }
+    Ok(())
 }
-
-fn missing_cached_items(index: &Index, roots: &[String]) -> Vec<String> {
+fn refresh_parent_record(index: &Index, id: NodeId) -> Result<()> {
+    let path = index.path(id)?;
+    let Ok(meta) = fs::symlink_metadata(&path) else {
+        return Ok(());
+    };
+    let current = Record::from(&meta);
+    let old = index.node(id)?.record;
+    if !meta.is_dir()
+        || meta.file_type().is_symlink()
+        || current.device != old.device
+        || current.inode != old.inode
+    {
+        return Ok(());
+    }
+    let (_, total) = index.listing(id, true, "", "size", 0, 0)?;
+    let Ok(entries) = fs::read_dir(&path) else {
+        return Ok(());
+    };
+    let mut count = 0;
+    for entry in entries {
+        let Ok(entry) = entry else { return Ok(()) };
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            return Ok(());
+        };
+        if index.child_named(id, name)?.is_none() {
+            return Ok(());
+        }
+        count += 1;
+    }
+    if count == total.count
+        && fs::symlink_metadata(&path).is_ok_and(|after| Record::from(&after) == current)
+    {
+        index.set_record(id, &current)?;
+    }
+    Ok(())
+}
+fn missing_cached_items(index: &Index, roots: &[String]) -> Result<Vec<String>> {
     let mut missing = vec![];
-    let mut pending: Vec<_> = roots
-        .iter()
-        .filter_map(|path| index.nodes.get(path.as_str()).cloned())
-        .collect();
-    while let Some(node) = pending.pop() {
-        match fs::symlink_metadata(node.path.as_ref()) {
-            Err(error)
-                if error.kind() == std::io::ErrorKind::NotFound && node.path != index.root.path =>
-            {
-                missing.push(node.path.to_string())
-            }
-            _ => pending.extend(node.children.iter().cloned()),
+    let mut pending = vec![];
+    for path in roots {
+        if let Some(id) = index.lookup(path)? {
+            pending.push(id);
         }
     }
-    missing
+    while let Some(id) = pending.pop() {
+        let path = index.path(id)?;
+        match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && id != 0 => {
+                missing.push(path)
+            }
+            _ => pending.extend(index.children(id)?),
+        }
+    }
+    Ok(missing)
 }
-fn cached_trash_roots(index: &Index) -> Vec<String> {
+fn cached_trash_roots(index: &Index) -> Result<Vec<String>> {
     if cfg!(target_os = "macos") {
         let uid = unsafe { libc::getuid() }.to_string();
         let mut roots = vec![home().join(".Trash").to_string_lossy().into_owned()];
-        roots.extend(
-            index
-                .nodes
-                .values()
-                .filter(|node| {
-                    node.directory
-                        && node.name == uid
-                        && Path::new(node.path.as_ref())
-                            .parent()
-                            .and_then(Path::file_name)
-                            .is_some_and(|name| name == ".Trashes")
-                })
-                .map(|node| node.path.to_string()),
-        );
-        if roots.iter().any(|root| inside(&index.root.path, root)) {
-            roots.push(index.root.path.to_string());
+        for id in index.trash_directories(&uid)? {
+            let path = index.path(id)?;
+            if Path::new(&path)
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == ".Trashes")
+            {
+                roots.push(path);
+            }
         }
-        roots
+        if roots.iter().any(|root| inside(&index.root_path, root)) {
+            roots.push(index.root_path.clone());
+        }
+        Ok(roots)
     } else {
         let data = std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home().join(".local/share"));
         let root = data.join("Trash").to_string_lossy().into_owned();
-        if inside(&index.root.path, &root) {
-            vec![index.root.path.to_string()]
+        Ok(if inside(&index.root_path, &root) {
+            vec![index.root_path.clone()]
         } else {
             vec![root]
-        }
+        })
     }
 }
 
@@ -1016,13 +967,13 @@ fn removal_snapshot(data: &Value, mut response: Value, completed: &[String]) -> 
     if response["completed"].as_bool() == Some(true) {
         // Empty Trash can remove paths already present in the snapshot. Check
         // those known entries only; do not discover or rescan any directories.
-        let missing = missing_cached_items(index, &cached_trash_roots(index));
-        prune_removed(index, &missing);
+        let missing = missing_cached_items(index, &cached_trash_roots(index)?)?;
+        prune_removed(index, &missing)?;
     } else {
-        prune_removed(index, completed);
+        prune_removed(index, completed)?;
     }
-    let mut snapshot = json!({"id":index.id,"root":index.root.shallow()});
-    match disk_usage(Path::new(index.root.path.as_ref())) {
+    let mut snapshot = json!({"id":index.id,"root":index.shallow(0)?});
+    match disk_usage(Path::new(index.root_path.as_str())) {
         Ok((total, free)) => {
             snapshot["total"] = json!(total);
             snapshot["free"] = json!(free);
@@ -1063,7 +1014,7 @@ pub(super) fn dispatch(route: &str, data: &Value) -> Result<Value> {
             let token = data["progressToken"].as_str().unwrap_or("").to_owned();
             *PROGRESS.lock().map_err(io)? = Some((token, progress.clone()));
             let (index, response) = scan_with_progress(&absolute(&target)?, Some(progress))?;
-            save_location(&index.root.path, &state_file())?;
+            save_location(&index.root_path, &state_file())?;
             *INDEX.lock().map_err(io)? = Some(index);
             response
         }
