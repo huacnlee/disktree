@@ -28,13 +28,14 @@ pages and cannot be marked for deletion.
 Use the breadcrumb trail to return to a scanned ancestor. Arrow keys select
 siblings. Space marks a selection. Review marked items shows full paths;
 Confirm move to Trash uses the system Trash. Delete permanently removes the
-reviewed items after confirming their paths. Settings → Empty Trash clears
+reviewed items after confirming their paths, reporting each file removed.
+View options → Empty Trash clears
 the system Trash after a separate confirmation.
 Permanent removal cannot be undone. The map refreshes after removal.
 
 Disk size measures allocated blocks, apparent size measures logical bytes,
-and Files weights the map by file count. Settings icon → Treemap depth selects 1–3 levels.
-Settings icon → Show hidden files toggles dot-prefixed direct children; Filter matches direct names across all pages.
+and Files weights the map by file count. View options (☷) → 1–3 levels deep sets the map depth.
+View options → Show hidden files toggles dot-prefixed direct children; Filter matches direct names across all pages.
 Scan totals continue to describe the complete scan regardless of filters.
 
 Symbolic links and other devices are not traversed. Hard-linked file bytes
@@ -56,8 +57,11 @@ background tasks), src/model.rs (classification and layout), and
 src/scanner.rs (scanner and Trash).
 Treemap transitions and pinch/pan run natively. Scan progress occupies the left
 side of the fixed StatusBar. Metric changes do not change the Refresh button's
-appearance. Review appears only when items are marked; permanent removal lives
-inside Review, and Empty Trash lives in Settings. Respects Reduce Motion.
+appearance. The sidebar is a navigation stack: Contents, then the selected
+item's Details, then Review; Back or Esc pops a page. Right-click a tile or row
+for its actions. Review appears only when items are marked; permanent removal
+lives inside Review, and Empty Trash lives in View options. Removal progress
+shows in Review and the StatusBar. Respects Reduce Motion.
 Inspired by https://github.com/tobi/disktree.
 
 The last successfully scanned or browsed directory is saved in

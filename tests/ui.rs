@@ -50,6 +50,9 @@ fn rust_ui_scans_browses_filters_and_confirms_removal() {
     })
     .unwrap();
     ui.wait_for("label:Select victim.bin").unwrap();
+    // Nothing selected: the sidebar summarizes the folder shown.
+    ui.wait_for("text:LARGEST").unwrap();
+    assert!(ui.screen().matches("text:victim.bin").unwrap());
     assert!(!ui.screen().matches("label:Review marked items →").unwrap());
     assert!(
         !ui.screen()
@@ -85,14 +88,19 @@ fn rust_ui_scans_browses_filters_and_confirms_removal() {
     );
     ui.press("label:View options").unwrap();
     ui.wait_for("label:Empty Trash…").unwrap();
-    ui.press("label:Close view options").unwrap();
-    assert!(!ui.screen().matches("label:Empty Trash…").unwrap());
+    ui.press("label:View options").unwrap();
+    ui.wait_for_gone("label:Empty Trash…", Duration::from_secs(5))
+        .unwrap();
     ui.press("label:View options").unwrap();
     ui.press("label:Empty Trash…").unwrap();
     ui.wait_for("label:Confirm empty Trash").unwrap();
     ui.press("label:Back to explorer").unwrap();
+    ui.wait_for_gone("label:Confirm empty Trash", Duration::from_secs(5))
+        .unwrap();
     ui.press("label:Select victim.bin").unwrap();
-    ui.press("label:Mark / unmark").unwrap();
+    ui.wait_for("label:Back to contents").unwrap();
+    ui.press("label:Mark").unwrap();
+    ui.wait_for("label:Unmark").unwrap();
     ui.press("label:Review marked items →").unwrap();
     ui.wait_for("text:Move these items to Trash?").unwrap();
     assert!(tree.join("victim.bin").exists());

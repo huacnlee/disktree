@@ -70,6 +70,7 @@ else:
         executable = base / 'home/.local/bin/disktree'
         self.assertEqual(subprocess.check_output([str(executable)], text=True).strip(), f'disktree {version[1:]}')
         release = executable.resolve().parent
+        self.assertEqual((release / '.disktree-install').read_text().split()[0], version)
         if system == 'Darwin':
             self.assertEqual((base / 'home/Applications/Disktree.app').resolve(), release / 'Disktree.app')
         else:
@@ -91,7 +92,7 @@ else:
                 self.assertNotEqual(failure.returncode, 0)
                 self.assertIn('Checksum verification failed', failure.stderr)
                 self.assertEqual(self.assert_active(base, system, 'v0.1.0'), active)
-                self.assertEqual(self.versions(active.parent), [active])
+                self.assertEqual(self.versions(active), [])
 
     def test_upgrade_and_reinstall_keep_only_current_version(self):
         for system in ['Darwin', 'Linux']:
@@ -102,8 +103,9 @@ else:
                     result = self.install(env, version)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     active = self.assert_active(base, system, version)
-                    self.assertEqual(active.parent, base / 'home/data/disktree')
-                    self.assertEqual(self.versions(active.parent), [active])
+                    self.assertEqual(active, base / 'home/data/disktree')
+                    self.assertEqual(self.versions(active), [])
+                    self.assertEqual(sorted(p.name for p in active.parent.iterdir() if p.name.startswith('.disktree')), [])
 
     def test_default_install_migrates_legacy_versions_and_preserves_unrelated_data(self):
         for system in ['Darwin', 'Linux']:
@@ -124,7 +126,7 @@ else:
                 result = self.install(env, 'v0.1.1')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 active = self.assert_active(base, system, 'v0.1.1')
-                self.assertEqual(active.parent, base / 'home/data/disktree')
+                self.assertEqual(active, base / 'home/data/disktree')
                 self.assertEqual(self.versions(legacy), [])
                 self.assertEqual((legacy / 'notes.txt').read_text(), 'keep me')
                 self.assertEqual((outside / 'sentinel').read_text(), 'keep me too')
@@ -141,9 +143,37 @@ else:
                 result = self.install(env, version)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 active = self.assert_active(base, 'Darwin', version)
-                self.assertEqual(active.parent, root)
-                self.assertEqual(self.versions(root), [active])
+                self.assertEqual(active, root)
+                self.assertEqual(self.versions(root), [])
             self.assertTrue(legacy.exists())
+
+    def test_versioned_install_root_is_flattened(self):
+        for system in ['Darwin', 'Linux']:
+            with self.subTest(system=system), tempfile.TemporaryDirectory() as temporary:
+                base, env = self.fixture(temporary, system)
+                root = base / 'home/data/disktree'
+                for name in ['v0.1.0-aarch64-apple-darwin.abcdef', 'v0.1.1-aarch64-unknown-linux-gnu.ghijkl']:
+                    (root / name).mkdir(parents=True)
+                    (root / name / 'disktree').write_text('old release')
+                self.package(base, system, 'v0.1.2')
+                result = self.install(env, 'v0.1.2')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.assert_active(base, system, 'v0.1.2'), root)
+                self.assertEqual(self.versions(root), [])
+
+    def test_unrelated_install_root_is_not_replaced(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base, env = self.fixture(temporary, 'Linux')
+            root = base / 'mine'
+            root.mkdir()
+            (root / 'notes.txt').write_text('keep me')
+            env['DISKTREE_INSTALL_DIR'] = str(root)
+            self.package(base, 'Linux')
+            result = self.install(env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('refusing to replace it', result.stderr)
+            self.assertEqual((root / 'notes.txt').read_text(), 'keep me')
+            self.assertEqual(sorted(p.name for p in base.iterdir() if p.name.startswith('.disktree')), [])
 
     def test_invalid_release_removes_partial_extraction_and_preserves_active_version(self):
         for system in ['Darwin', 'Linux']:
@@ -157,7 +187,7 @@ else:
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('Release has no disktree executable', result.stderr)
                 self.assertEqual(self.assert_active(base, system, 'v0.1.0'), active)
-                self.assertEqual(self.versions(active.parent), [active])
+                self.assertEqual(sorted(p.name for p in active.parent.iterdir() if p.name.startswith('.disktree')), [])
 
 
 if __name__ == '__main__':

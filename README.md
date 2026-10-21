@@ -41,7 +41,7 @@ To install a specific version:
 curl -fsSL https://raw.githubusercontent.com/huacnlee/disktree/main/install.sh | sh -s -- v0.1.0
 ```
 
-The installer verifies the release's SHA-256 checksum. It installs the command in `~/.local/bin/disktree`, with a macOS app entry in `~/Applications`. Override these locations with `DISKTREE_BIN_DIR`, `DISKTREE_INSTALL_DIR`, and `DISKTREE_APPS_DIR`. Run the installer again to upgrade.
+The installer verifies the release's SHA-256 checksum and installs it at one fixed location, `~/.local/share/disktree` (`$XDG_DATA_HOME/disktree`), replacing the previous release in place, so only one version is ever kept. It links the command as `~/.local/bin/disktree`, with a macOS app entry in `~/Applications`. Override these locations with `DISKTREE_BIN_DIR`, `DISKTREE_INSTALL_DIR`, and `DISKTREE_APPS_DIR`; the installer refuses to replace an existing `DISKTREE_INSTALL_DIR` it did not create. Run the installer again to upgrade; it also removes the per-version directories older installers left behind.
 
 ### Manual download
 
@@ -58,19 +58,20 @@ sudo apt install libgtk-4-1 libglib2.0-bin
 | Action | Control |
 | --- | --- |
 | Scan a folder | Click ↻; use ✎ to edit a path |
-| Show hidden files / set map depth | Settings icon → Show hidden files / Treemap depth |
-| Select a tile | Click, or use the arrow keys |
+| Show hidden files / set map depth | View options menu (☷) → Show hidden files / 1–3 levels deep |
+| Select a tile | Click, or use the arrow keys; the sidebar pushes its details (‹ Back or Esc returns) |
+| Item actions | Right-click a tile or a contents row → Show details / Open folder / Mark / Review |
 | Enter a folder | Click the selected folder again, Enter, or Open folder |
 | Navigate back | Click a breadcrumb, or Alt+↑ |
 | Zoom | Pinch out/in, or Cmd/Ctrl + / - |
 | Pan | Drag the map with the mouse |
 | Fit the map | Cmd/Ctrl+0 |
-| Mark/unmark | Point at a tile and press Space, or use Mark / unmark |
+| Mark/unmark | Point at a tile or row and press Space, or use Mark in its details |
 | Review removal | Review marked items → inspect paths → Confirm move to Trash |
 | Delete permanently | Mark items → Review → Delete permanently → Confirm permanent deletion |
-| Empty Trash | Settings → Empty Trash… → Confirm empty Trash |
+| Empty Trash | View options menu → Empty Trash… → Confirm empty Trash |
 
-Marking does not delete anything. Successful removal automatically refreshes the map and free space. Use Settings → Empty Trash to reclaim space, or Delete permanently inside Review to bypass Trash; both require confirmation.
+Marking does not delete anything. Removal reports progress as it runs (items, files and bytes removed, and the current path), in the Review page and the status bar. Successful removal automatically refreshes the map and free space. Use View options → Empty Trash to reclaim space, or Delete permanently inside Review to bypass Trash; both require confirmation.
 
 Directory lists contain 80 items per page. Filtering searches all direct children of the current directory, including other pages. Aggregate tiles preserve the weight of undisplayed items and cannot be marked. Enter individual folders to inspect their contents.
 

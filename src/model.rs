@@ -73,6 +73,19 @@ pub(crate) struct Progress {
     pub errors: u64,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub(crate) struct RemovalProgress {
+    pub percent: u8,
+    pub items: usize,
+    pub total_items: usize,
+    pub files: u64,
+    pub total_files: u64,
+    pub bytes: u64,
+    pub total_bytes: u64,
+    pub current: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Tile {
     pub node: Node,

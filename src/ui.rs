@@ -3,10 +3,12 @@ use crate::{
     model::*,
     state::{Removal, State},
 };
+use nsh_base::{MenuEvent, context_menu, menu, menu_item, menu_separator, nav_page, nav_stack};
 use nsh_core::{
     AccessibilityRole, LayoutAnimation, LayoutCurve, LayoutTransition, keymap::When,
-    ui::AnimatedValue, ui::prelude::*,
+    ui::AnimatedValue, ui::StyleRefinement, ui::prelude::*,
 };
+use std::time::Duration;
 const MONO: &str = if cfg!(target_os = "macos") {
     "Menlo"
 } else {
@@ -14,6 +16,7 @@ const MONO: &str = if cfg!(target_os = "macos") {
 };
 const BG: u32 = 0x070708;
 const PANEL: u32 = 0x101012;
+const RAISED: u32 = 0x18181b;
 const LINE: u32 = 0x29292d;
 const INK: u32 = 0xededf0;
 const MUTED: u32 = 0x85858f;
@@ -47,6 +50,21 @@ fn colored_control(
     color: impl IntoReactive<u32>,
     action: impl Fn() + 'static,
 ) -> View {
+    let disabled = disabled.into_reactive();
+    let disabled = computed(move || disabled.get());
+    chip(label, glyph, move || disabled.get(), color).on_press(move |_: &()| {
+        if !disabled.get_untracked() {
+            action()
+        }
+    })
+}
+/// A control's look without its action: menus press their own triggers.
+fn chip(
+    label: impl IntoReactive<SharedString>,
+    glyph: Option<&'static str>,
+    disabled: impl IntoReactive<bool>,
+    color: impl IntoReactive<u32>,
+) -> View {
     let color = color.into_reactive();
     let color = computed(move || color.get());
     let disabled = disabled.into_reactive();
@@ -58,30 +76,31 @@ fn colored_control(
         .label(move || label.get())
         .disabled(move || disabled.get())
         .window_drag(false)
-        .on_press(move |_: &()| {
-            if !disabled.get_untracked() {
-                action()
+        .when(glyph.is_some(), |v| v.tooltip(label.get_untracked()))
+        .map(|v| {
+            if glyph.is_some() {
+                // Title bar icons are ghost buttons: no fill or border until
+                // the pointer is on them.
+                v.w(px(32.))
+                    .h(px(32.))
+                    .rounded(px(6.))
+                    .hover(|s| s.bg(rgb(0x1f1f24)))
+                    .active(|s| s.bg(rgb(0x2a2a30)))
+            } else {
+                v.px(px(13.))
+                    .py(px(10.))
+                    .rounded(px(7.))
+                    .border_1()
+                    .border_color(rgb(0x36363d))
+                    .bg(rgb(RAISED))
+                    .hover(|s| s.bg(rgb(0x222227)))
             }
         })
-        .px(px(if glyph.is_some() { 10. } else { 13. }))
-        .py(px(10.))
-        .rounded(px(7.))
-        .border_1()
-        .border_color(rgb(if glyph == Some("⟳") {
-            0x68b985
-        } else {
-            0x36363d
-        }))
-        .bg(rgb(if glyph == Some("⟳") {
-            0x14251c
-        } else {
-            0x18181b
-        }))
         .opacity(move || if disabled.get() { 0.45_f32 } else { 1.0_f32 })
         .items_center()
         .justify_center()
         .child(
-            If::new(move || glyph.is_some(), move || icon(glyph.unwrap())).otherwise(move || {
+            when(move || glyph.is_some(), move || icon(glyph.unwrap())).otherwise(move || {
                 caption(move || label.get(), 11., INK)
                     .text_color(move || rgb(color.get()))
                     .font_weight(FontWeight::SEMIBOLD)
@@ -91,7 +110,7 @@ fn colored_control(
 }
 fn icon(glyph: &str) -> impl IntoElement {
     let p = Painter::new()
-        .stroke_color(rgb(INK))
+        .stroke_color(rgb(if glyph == "⟳" { GREEN } else { INK }))
         .line_width(1.6)
         .begin_path();
     let p = match glyph {
@@ -106,6 +125,7 @@ fn icon(glyph: &str) -> impl IntoElement {
             .move_to(3., 7.)
             .line_to(8., 2.)
             .line_to(13., 7.),
+        "‹" => p.move_to(10., 3.).line_to(5., 8.).line_to(10., 13.),
         "☷" => {
             let mut p = p;
             for (y, x) in [(4., 6.), (8., 10.), (12., 5.)] {
@@ -131,11 +151,22 @@ fn icon(glyph: &str) -> impl IntoElement {
     };
     canvas(p.stroke()).w(px(16.)).h(px(16.))
 }
-fn separator() -> impl IntoElement {
-    view().h(px(1.)).bg(rgb(LINE))
-}
 fn row() -> View {
     view().flex_row().items_center().gap(px(8.))
+}
+fn meter(fraction: impl Fn() -> f32 + 'static, height: f32, color: u32) -> impl IntoElement {
+    view()
+        .h(px(height))
+        .rounded(px(2.))
+        .bg(rgb(0x28282d))
+        .overflow_hidden()
+        .child(
+            view()
+                .h(px(height))
+                .rounded(px(2.))
+                .bg(rgb(color))
+                .w(move || relative(fraction().clamp(0., 1.))),
+        )
 }
 fn app_mark() -> impl IntoElement {
     canvas(
@@ -157,6 +188,46 @@ fn app_mark() -> impl IntoElement {
     .w(px(24.))
     .h(px(24.))
 }
+/// The popup every menu shares: a raised panel over a hairline.
+fn popup(s: StyleRefinement) -> StyleRefinement {
+    s.min_w(px(220.))
+        .p(px(5.))
+        .gap(px(1.))
+        .rounded(px(8.))
+        .border_1()
+        .border_color(rgb(0x34343a))
+        .bg(rgb(0x161619))
+}
+fn entry(
+    label: impl IntoReactive<SharedString>,
+    disabled: impl IntoReactive<bool>,
+    color: u32,
+    action: impl Fn() + 'static,
+) -> impl IntoElement {
+    let label = label.into_reactive();
+    let label = computed(move || label.get());
+    let disabled = disabled.into_reactive();
+    menu_item()
+        .accessibility_label(move || Some(label.get()))
+        .disabled(move || disabled.get())
+        .on_select(move |_: &()| action())
+        .px(px(10.))
+        .py(px(7.))
+        .rounded(px(5.))
+        .hover(|s| s.bg(rgb(0x24242a)))
+        .disabled_style(|s| s.opacity(0.4))
+        .child(
+            caption(move || label.get(), 11., color)
+                .font_weight(FontWeight::MEDIUM)
+                .number_of_lines(1),
+        )
+}
+fn check(on: bool, label: impl std::fmt::Display) -> String {
+    format!("{} {label}", if on { "✓" } else { " " })
+}
+fn rule() -> impl IntoElement {
+    menu_separator().h(px(1.)).my(px(4.)).bg(rgb(LINE))
+}
 #[derive(Clone, Copy)]
 struct Camera {
     scale: AnimatedValue,
@@ -173,6 +244,24 @@ impl Camera {
             self.y.set(0.);
         }
     }
+}
+/// Commands for unattended smoke tests: `wait <ms>`, `key mod+r`, `quit`.
+fn run_script(s: State, script: String) {
+    s.owner.run(move || {
+        spawn(async move {
+            for command in script.split(';').map(str::trim).filter(|c| !c.is_empty()) {
+                let mut parts = command.split_whitespace();
+                match (parts.next(), parts.next()) {
+                    (Some("wait"), Some(ms)) => {
+                        timer(Duration::from_millis(ms.parse().unwrap_or(0))).await
+                    }
+                    (Some("key"), Some("cmd+r" | "mod+r")) => s.scan(s.path.get_untracked()),
+                    (Some("quit"), None) => std::process::exit(0),
+                    _ => log::warn!("Unknown DISKTREE_UI_SCRIPT command: {command}"),
+                }
+            }
+        })
+    });
 }
 /// Disktree's Rust entry point, shared by `nsh dev`, `nsh run`, and Cargo.
 #[component]
@@ -229,26 +318,42 @@ pub fn App() -> impl IntoElement {
             ..Default::default()
         },
         move |_| {
-            s.options.set(false);
             if !s.busy.get_untracked() {
-                s.review.set(false);
+                s.close();
                 s.editing.set(false);
                 filter.blur();
             }
         },
     );
     s.scan(String::new());
+    if let Ok(script) = std::env::var("DISKTREE_UI_SCRIPT") {
+        run_script(s, script);
+    }
     view()
         .flex_1()
         .bg(rgb(BG))
         .child(toolbar(s))
-        .child(view().h(px(2.)).bg(move || {
-            rgb(if s.progress.get().is_some() {
-                GREEN
-            } else {
-                BG
-            })
-        }))
+        .child(
+            view().h(px(2.)).bg(rgb(BG)).child(
+                view()
+                    .h(px(2.))
+                    .bg(move || {
+                        rgb(if s.removing.get().is_some() {
+                            RED
+                        } else {
+                            GREEN
+                        })
+                    })
+                    .w(move || {
+                        let percent = s
+                            .removing
+                            .get()
+                            .map(|p| p.percent)
+                            .or_else(|| s.progress.get().map(|p| p.percent));
+                        relative(percent.map_or(0., |p| (p.max(2) as f32 / 100.).min(1.)))
+                    }),
+            ),
+        )
         .child(
             view()
                 .flex_1()
@@ -267,24 +372,6 @@ pub fn App() -> impl IntoElement {
                 .child(sidebar(s)),
         )
         .child(statusbar(s))
-        .child(If::new(
-            move || s.options.get(),
-            move || {
-                view()
-                    .absolute()
-                    .inset(px(0.))
-                    .child(
-                        view()
-                            .absolute()
-                            .inset(px(0.))
-                            .role(AccessibilityRole::Button)
-                            .label("Close view options")
-                            .window_drag(false)
-                            .on_press(move |_: &()| s.options.set(false)),
-                    )
-                    .child(options(s))
-            },
-        ))
 }
 fn legend() -> impl IntoElement {
     scroll()
@@ -303,27 +390,17 @@ fn legend() -> impl IntoElement {
                 })),
         )
 }
-fn options(s: State) -> impl IntoElement {
-    view()
-        .absolute()
-        .right(px(12.))
-        .top(px(58.))
-        .w(px(230.))
-        .p(px(12.))
-        .gap(px(8.))
-        .rounded(px(8.))
-        .border_1()
-        .border_color(rgb(LINE))
-        .bg(rgb(PANEL))
-        .child(button(
-            move || {
-                if s.hidden.get() {
-                    "✓ Show hidden files"
-                } else {
-                    "Show hidden files"
-                }
-            },
+fn view_menu(s: State) -> impl IntoElement {
+    menu()
+        .placement(Placement::Bottom)
+        .align(Align::End)
+        .offset(px(6.))
+        .popup_style(popup)
+        .trigger(chip("View options", Some("☷"), false, INK))
+        .child(entry(
+            move || check(s.hidden.get(), "Show hidden files"),
             false,
+            INK,
             move || {
                 batch(|| {
                     s.hidden.update(|v| *v = !*v);
@@ -331,29 +408,21 @@ fn options(s: State) -> impl IntoElement {
                 })
             },
         ))
+        .child(rule())
         .children([1, 2, 3].into_iter().map(move |depth| {
-            button(
-                move || {
-                    format!(
-                        "{} {depth} levels",
-                        if s.levels.get() == depth { "✓" } else { " " }
-                    )
-                },
+            entry(
+                move || check(s.levels.get() == depth, format!("{depth} levels deep")),
                 false,
-                move || {
-                    s.levels.set(depth);
-                    s.options.set(false);
-                },
+                INK,
+                move || s.levels.set(depth),
             )
         }))
-        .child(separator())
-        .child(button(
+        .child(rule())
+        .child(entry(
             "Empty Trash…",
             move || s.locked(),
-            move || {
-                s.options.set(false);
-                s.begin_review(Removal::Empty);
-            },
+            RED,
+            move || s.begin_review(Removal::Empty),
         ))
 }
 fn toolbar(s: State) -> impl IntoElement {
@@ -402,59 +471,70 @@ fn toolbar(s: State) -> impl IntoElement {
             move || s.up(),
         ))
         .child(
-            row()
-                .gap(px(0.))
-                .p(px(3.))
-                .rounded(px(19.))
-                .bg(rgb(0x090c0a))
-                .children(
-                    [Metric::Size, Metric::Apparent, Metric::Files]
-                        .into_iter()
-                        .map(move |metric| {
-                            view()
-                                .role(AccessibilityRole::Tab)
-                                .label(metric.label())
-                                .accessibility_state(move || nsh_core::AccessibilityState {
-                                    selected: s.metric.get() == metric,
-                                    ..Default::default()
+            row().gap(px(2.)).children(
+                [Metric::Size, Metric::Apparent, Metric::Files]
+                    .into_iter()
+                    .map(move |metric| {
+                        view()
+                            .role(AccessibilityRole::Tab)
+                            .label(metric.label())
+                            .accessibility_state(move || nsh_core::AccessibilityState {
+                                selected: s.metric.get() == metric,
+                                ..Default::default()
+                            })
+                            .window_drag(false)
+                            .on_press(move |_: &()| {
+                                batch(|| {
+                                    s.metric.set(metric);
+                                    s.page.set(0);
                                 })
-                                .window_drag(false)
-                                .on_press(move |_: &()| {
-                                    batch(|| {
-                                        s.metric.set(metric);
-                                        s.page.set(0);
-                                    })
+                            })
+                            .h(px(32.))
+                            .px(px(10.))
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(6.))
+                            .bg(move || {
+                                rgba(if s.metric.get() == metric {
+                                    0x1f1f24ff
+                                } else {
+                                    0
                                 })
-                                .w(px(76.))
-                                .py(px(8.))
-                                .items_center()
-                                .rounded(px(15.))
-                                .border_1()
-                                .border_color(move || {
-                                    rgba(if s.metric.get() == metric {
-                                        0x68b985ff
-                                    } else {
-                                        0
-                                    })
+                            })
+                            .hover(|s| s.bg(rgb(0x1f1f24)))
+                            .active(|s| s.bg(rgb(0x2a2a30)))
+                            .child(caption(metric.label(), 11., INK).text_color(move || {
+                                rgb(if s.metric.get() == metric {
+                                    GREEN
+                                } else {
+                                    MUTED
                                 })
-                                .bg(move || {
-                                    rgba(if s.metric.get() == metric {
-                                        0x111a14ff
-                                    } else {
-                                        0
-                                    })
-                                })
-                                .child(caption(metric.label(), 11., INK))
-                        }),
-                ),
+                            }))
+                    }),
+            ),
         )
-        .child(control("View options", Some("☷"), false, move || {
-            s.options.update(|v| *v = !*v)
-        }))
+        .child(view_menu(s))
+}
+fn crumb(s: State, item: ReadSignal<(String, String)>) -> impl IntoElement {
+    row()
+        .min_w(px(0.))
+        .flex_shrink(1.)
+        .child(caption("›", 12., MUTED))
+        .child(
+            view()
+                .p(px(4.))
+                .min_w(px(0.))
+                .flex_shrink(1.)
+                .rounded(px(4.))
+                .hover(|s| s.bg(rgb(0x18181c)))
+                .role(AccessibilityRole::Button)
+                .label(move || format!("Go to {}", item.get().1))
+                .on_press(move |_: &()| s.navigate(item.get_untracked().1))
+                .child(caption(move || item.get().0, 12., GREEN).number_of_lines(1)),
+        )
 }
 fn path_bar(s: State, filter: ElementRef) -> impl IntoElement {
     let width = signal(400.0_f32);
-    let overflow = signal(false);
     let crumbs = computed(move || {
         let path = s.path.get();
         let mut full = String::new();
@@ -485,7 +565,7 @@ fn path_bar(s: State, filter: ElementRef) -> impl IntoElement {
                 .min_w(px(80.))
                 .overflow_hidden()
                 .on_layout(move |b: &Bounds<Points>| width.set(b.size.width.0))
-                .child(If::new(
+                .child(when(
                     move || !s.editing.get(),
                     move || {
                         row()
@@ -495,46 +575,39 @@ fn path_bar(s: State, filter: ElementRef) -> impl IntoElement {
                                 button("/", move || s.locked(), move || s.navigate("/".into()))
                                     .p(px(4.)),
                             )
-                            .child(If::new(
+                            .child(when(
                                 move || !crumbs.get().0.is_empty(),
                                 move || {
-                                    button(
-                                        "…",
-                                        move || s.locked(),
-                                        move || overflow.update(|v| *v = !*v),
-                                    )
-                                    .p(px(4.))
-                                    .label("Show hidden path segments")
+                                    menu()
+                                        .offset(px(4.))
+                                        .popup_style(popup)
+                                        .trigger(
+                                            chip("…", None, move || s.locked(), INK)
+                                                .p(px(4.))
+                                                .label("Show hidden path segments"),
+                                        )
+                                        .child(each(
+                                            move || crumbs.get().0,
+                                            |item| item.1.clone(),
+                                            move |item, _| {
+                                                entry(
+                                                    move || item.get().1,
+                                                    false,
+                                                    INK,
+                                                    move || s.navigate(item.get_untracked().1),
+                                                )
+                                            },
+                                        ))
                                 },
                             ))
-                            .child(Each::new(
+                            .child(each(
                                 move || crumbs.get().1,
                                 |item| item.1.clone(),
-                                move |item, _| {
-                                    row()
-                                        .min_w(px(0.))
-                                        .flex_shrink(1.)
-                                        .child(caption("›", 12., MUTED))
-                                        .child(
-                                            view()
-                                                .p(px(4.))
-                                                .min_w(px(0.))
-                                                .flex_shrink(1.)
-                                                .role(AccessibilityRole::Button)
-                                                .label(move || format!("Go to {}", item.get().1))
-                                                .on_press(move |_: &()| {
-                                                    s.navigate(item.get_untracked().1)
-                                                })
-                                                .child(
-                                                    caption(move || item.get().0, 12., GREEN)
-                                                        .number_of_lines(1),
-                                                ),
-                                        )
-                                },
+                                move |item, _| crumb(s, item),
                             ))
                     },
                 ))
-                .child(If::new(
+                .child(when(
                     move || s.editing.get(),
                     move || {
                         input()
@@ -598,33 +671,60 @@ fn path_bar(s: State, filter: ElementRef) -> impl IntoElement {
                 .bg(rgb(0x18181c))
                 .rounded(px(4.)),
         )
-        .child(If::new(
-            move || overflow.get(),
+}
+/// A context menu for the item under the pointer (the deepest hovered tile
+/// or row), captured as the menu opens so moving onto it changes nothing.
+fn node_menu(s: State, trigger: impl IntoElement) -> impl IntoElement {
+    let target = signal(Node::default());
+    // Component roots take no layout of their own: wrap only content whose
+    // size does not depend on its parent's (the map's frame, the rows).
+    context_menu()
+        .popup_style(popup)
+        .on_open_change(move |event: &MenuEvent| {
+            if let MenuEvent::OpenChange(true, _) = event {
+                let node = s
+                    .hovered
+                    .get_untracked()
+                    .into_iter()
+                    .max_by_key(|n| n.path.len())
+                    .unwrap_or_else(|| s.selection.get_untracked());
+                target.set(node);
+            }
+        })
+        .trigger(trigger)
+        .child(
+            caption(move || target.get().name, 10., MUTED)
+                .px(px(10.))
+                .py(px(5.))
+                .number_of_lines(1),
+        )
+        .child(entry(
+            "Show details",
+            move || target.get().aggregate,
+            INK,
+            move || s.selection.set(target.get_untracked()),
+        ))
+        .child(entry(
+            "Open folder",
+            move || s.locked() || !target.get().directory,
+            INK,
+            move || s.enter(target.get_untracked()),
+        ))
+        .child(rule())
+        .child(entry(
             move || {
-                view()
-                    .absolute()
-                    .left(px(10.))
-                    .top(px(94.))
-                    .w(px(350.))
-                    .p(px(10.))
-                    .bg(rgb(PANEL))
-                    .border_1()
-                    .border_color(rgb(LINE))
-                    .child(Each::new(
-                        move || crumbs.get().0,
-                        |item| item.1.clone(),
-                        move |item, _| {
-                            button(
-                                move || item.get().1,
-                                false,
-                                move || {
-                                    s.navigate(item.get_untracked().1);
-                                    overflow.set(false);
-                                },
-                            )
-                        },
-                    ))
+                let marked = s.marked.get().iter().any(|n| n.path == target.get().path);
+                if marked { "Unmark" } else { "Mark for removal" }
             },
+            move || s.locked() || target.get().aggregate,
+            INK,
+            move || s.mark(target.get_untracked()),
+        ))
+        .child(entry(
+            move || format!("Review {} marked…", s.marked.get().len()),
+            move || s.locked() || s.marked.get().is_empty(),
+            INK,
+            move || s.begin_review(Removal::Trash),
         ))
 }
 fn treemap(s: State, camera: Camera, filter: ElementRef) -> impl IntoElement {
@@ -695,20 +795,21 @@ fn treemap(s: State, camera: Camera, filter: ElementRef) -> impl IntoElement {
                 })
             });
         })
-        .child(
+        .child(node_menu(
+            s,
             view()
                 .w(move || px(frame.get().0))
                 .h(move || px(frame.get().1))
                 .bind_scale(&scale)
                 .bind_translate_x(&pan_x)
                 .bind_translate_y(&pan_y)
-                .child(Each::new(
+                .child(each(
                     move || tiles.get(),
                     |tile| tile.node.path.clone(),
                     move |tile, _| map_tile(s, tile),
                 )),
-        )
-        .child(If::new(
+        ))
+        .child(when(
             move || tiles.get().is_empty(),
             move || {
                 view()
@@ -801,7 +902,7 @@ fn map_tile(s: State, tile: ReadSignal<Tile>) -> impl IntoElement {
         .on_press(move |_: &()| s.choose(tile.get_untracked().node))
         .on_hover_in(move |_: &()| s.hover(tile.get_untracked().node, true))
         .on_hover_out(move |_: &()| s.hover(tile.get_untracked().node, false))
-        .child(If::new(
+        .child(when(
             move || tile.get().width * s.zoom.get() > 70. && tile.get().height * s.zoom.get() > 26.,
             move || {
                 row()
@@ -823,7 +924,7 @@ fn map_tile(s: State, tile: ReadSignal<Tile>) -> impl IntoElement {
                         .flex_1()
                         .number_of_lines(1),
                     )
-                    .child(If::new(
+                    .child(when(
                         move || tile.get().node.directory && tile.get().width * s.zoom.get() > 140.,
                         move || {
                             caption("↗", 13., INK)
@@ -832,7 +933,7 @@ fn map_tile(s: State, tile: ReadSignal<Tile>) -> impl IntoElement {
                     ))
             },
         ))
-        .child(If::new(
+        .child(when(
             move || {
                 let t = tile.get();
                 t.width * s.zoom.get() > 90.
@@ -862,7 +963,7 @@ fn map_tile(s: State, tile: ReadSignal<Tile>) -> impl IntoElement {
                 })
             },
         ))
-        .child(If::new(
+        .child(when(
             move || {
                 marked.get()
                     && tile.get().width * s.zoom.get() > 110.
@@ -886,7 +987,58 @@ fn stat(label: &'static str, value: impl IntoReactive<SharedString>) -> impl Int
         .child(caption(label, 10., MUTED))
         .child(caption(value, 15., INK))
 }
+/// A back button's label and action.
+type Back = (&'static str, Box<dyn Fn()>);
+/// The header the app draws over each sidebar page on the desktops: a back
+/// button (pages above the first), the title, and an optional trailing item.
+fn page_header(
+    title: impl IntoReactive<SharedString>,
+    back: Option<Back>,
+    disabled: impl IntoReactive<bool>,
+) -> impl IntoElement {
+    let disabled = disabled.into_reactive();
+    let disabled = computed(move || disabled.get());
+    row()
+        .h(px(44.))
+        .px(px(10.))
+        .gap(px(6.))
+        .border_b_1()
+        .border_color(rgb(LINE))
+        .bg(rgb(PANEL))
+        .when_some(back, |v, (label, back)| {
+            v.child(
+                row()
+                    .gap(px(2.))
+                    .pl(px(2.))
+                    .pr(px(8.))
+                    .py(px(5.))
+                    .rounded(px(6.))
+                    .hover(|s| s.bg(rgb(0x1d1d21)))
+                    .role(AccessibilityRole::Button)
+                    .label(label)
+                    .tooltip(label)
+                    .disabled(move || disabled.get())
+                    .opacity(move || if disabled.get() { 0.45_f32 } else { 1.0_f32 })
+                    .on_press(move |_: &()| back())
+                    .child(icon("‹"))
+                    .child(caption("Back", 11., MUTED)),
+            )
+        })
+        .child(
+            caption(title, 12., INK)
+                .font_weight(FontWeight::SEMIBOLD)
+                .flex_1()
+                .number_of_lines(1),
+        )
+}
 fn sidebar(s: State) -> impl IntoElement {
+    // The stack follows state: a selection other than the folder shown pushes
+    // its details, a review pushes over both. Going back clears that state.
+    let details = computed(move || {
+        let selection = s.selection.get();
+        !selection.path.is_empty() && selection.path != s.path.get()
+    });
+    let contents = move || s.selection.set(s.listing.get_untracked().node);
     view()
         .w(px(284.))
         .flex_shrink(0.)
@@ -894,264 +1046,399 @@ fn sidebar(s: State) -> impl IntoElement {
         .border_l_1()
         .border_color(rgb(LINE))
         .child(
-            scroll().flex_1().child(
-                view()
-                    .p(px(16.))
-                    .gap(px(12.))
-                    .child(caption(
-                        move || {
-                            if s.review.get() {
-                                if s.removal.get() == Removal::Empty {
-                                    "EMPTY TRASH"
-                                } else {
-                                    "REVIEW REMOVAL"
-                                }
-                            } else {
-                                "SELECTION"
-                            }
-                        },
-                        10.,
-                        MUTED,
-                    ))
-                    .child(If::new(move || !s.review.get(), move || selection_panel(s)))
-                    .child(If::new(move || s.review.get(), move || review_panel(s)))
-                    .child(separator())
-                    .child(caption(
-                        move || {
-                            format!(
-                                "{} marked · {}",
-                                s.marked.get().len(),
-                                format_size(
-                                    s.marked.get().iter().map(|n| n.size).sum::<u64>() as f64
-                                )
-                            )
-                        },
-                        12.,
-                        INK,
-                    ))
-                    .child(If::new(
-                        move || !s.review.get(),
-                        move || {
-                            view()
-                                .gap(px(12.))
-                                .child(If::new(
-                                    move || !s.marked.get().is_empty(),
-                                    move || {
-                                        button(
-                                            "Review marked items →",
-                                            move || s.locked(),
-                                            move || s.begin_review(Removal::Trash),
-                                        )
-                                    },
-                                ))
-                                .child(separator())
-                                .child(
-                                    row()
-                                        .justify_between()
-                                        .child(caption(
-                                            move || {
-                                                format!(
-                                                    "CONTENTS · {} ITEMS",
-                                                    s.listing.get().count
-                                                )
-                                            },
-                                            10.,
-                                            MUTED,
-                                        ))
-                                        .child(caption(
-                                            move || {
-                                                let v = s.listing.get();
-                                                if v.count == 0 {
-                                                    String::new()
-                                                } else {
-                                                    format!(
-                                                        "{}–{}",
-                                                        v.offset + 1,
-                                                        (v.offset + v.page_size).min(v.count)
-                                                    )
-                                                }
-                                            },
-                                            10.,
-                                            MUTED,
-                                        )),
-                                )
-                                .child(If::new(
-                                    move || s.listing.get().count > 80,
-                                    move || {
-                                        row()
-                                            .justify_between()
-                                            .child(
-                                                button(
-                                                    "‹ Previous",
-                                                    move || s.locked() || s.page.get() == 0,
-                                                    move || {
-                                                        s.page.update(|p| *p = p.saturating_sub(80))
-                                                    },
-                                                )
-                                                .py(px(4.))
-                                                .px(px(8.)),
-                                            )
-                                            .child(
-                                                button(
-                                                    "Next ›",
-                                                    move || {
-                                                        let v = s.listing.get();
-                                                        s.locked()
-                                                            || v.offset + v.page_size >= v.count
-                                                    },
-                                                    move || s.page.update(|p| *p += 80),
-                                                )
-                                                .py(px(4.))
-                                                .px(px(8.)),
-                                            )
-                                    },
-                                ))
-                                .child(Each::new(
-                                    move || s.listing.get().children,
-                                    |node| node.path.clone(),
-                                    move |node, _| directory_row(s, node),
-                                ))
-                        },
-                    )),
-            ),
+            nav_stack()
+                .flex_1()
+                .child(
+                    nav_page()
+                        .key("contents")
+                        .title(move || folder_name(&s.listing.get().node))
+                        .header(page_header(
+                            move || folder_name(&s.listing.get().node),
+                            None,
+                            false,
+                        ))
+                        .child(contents_page(s)),
+                )
+                .child(when(
+                    move || details.get(),
+                    move || {
+                        nav_page()
+                            .key("details")
+                            .title(move || s.selection.get().name)
+                            .on_dismiss(contents)
+                            .header(page_header(
+                                move || s.selection.get().name,
+                                Some(("Back to contents", Box::new(contents))),
+                                false,
+                            ))
+                            .child(details_page(s))
+                    },
+                ))
+                .child(when(
+                    move || s.review.get(),
+                    move || {
+                        nav_page()
+                            .key("review")
+                            .title(move || review_title(s))
+                            .pop_on_back(move || !s.busy.get())
+                            .on_dismiss(move || s.review.set(false))
+                            .header(page_header(
+                                move || review_title(s),
+                                Some(("Back to explorer", Box::new(move || s.close()))),
+                                move || s.busy.get(),
+                            ))
+                            .child(review_page(s))
+                    },
+                )),
         )
+        .child(when(
+            move || !s.review.get() && !s.marked.get().is_empty(),
+            move || marked_bar(s),
+        ))
+        .child(disk_space(s))
+}
+fn folder_name(node: &Node) -> String {
+    if node.path.is_empty() {
+        "Contents".into()
+    } else if node.name.is_empty() {
+        node.path.clone()
+    } else {
+        node.name.clone()
+    }
+}
+fn review_title(s: State) -> &'static str {
+    match s.removal.get() {
+        Removal::Empty => "Empty Trash",
+        Removal::Trash => "Move to Trash",
+        Removal::Delete => "Delete permanently",
+    }
+}
+fn marked_bar(s: State) -> impl IntoElement {
+    row()
+        .p(px(12.))
+        .gap(px(10.))
+        .border_t_1()
+        .border_color(rgb(LINE))
+        .bg(rgb(0x17150f))
         .child(
             view()
-                .p(px(16.))
-                .gap(px(9.))
-                .border_t_1()
-                .border_color(rgb(LINE))
-                .bg(rgb(0x141416))
-                .child(caption("DISK SPACE", 10., MUTED))
+                .flex_1()
+                .gap(px(3.))
                 .child(caption(
-                    move || format!("{} free", format_size(s.snapshot.get().free as f64)),
-                    25.,
-                    INK,
+                    move || format!("{} MARKED", s.marked.get().len()),
+                    10.,
+                    0xd29123,
                 ))
-                .child(
-                    view().h(px(5.)).rounded(px(2.)).bg(rgb(0x28282d)).child(
-                        view()
-                            .h(px(5.))
-                            .rounded(px(2.))
-                            .bg(rgb(0x56b675))
-                            .w(move || {
-                                relative(if s.snapshot.get().total > 0 {
-                                    1. - s.snapshot.get().free as f32
-                                        / s.snapshot.get().total as f32
-                                } else {
-                                    0.
-                                })
-                            }),
-                    ),
-                )
-                .child(
-                    row()
-                        .justify_between()
-                        .child(caption(
-                            move || {
-                                format!(
-                                    "{} used",
-                                    format_size(
-                                        s.snapshot.get().total.saturating_sub(s.snapshot.get().free)
-                                            as f64
-                                    )
-                                )
-                            },
-                            10.,
-                            MUTED,
-                        ))
-                        .child(caption(
-                            move || format!("{} total", format_size(s.snapshot.get().total as f64)),
-                            10.,
-                            MUTED,
-                        )),
-                ),
+                .child(caption(
+                    move || format_size(s.marked.get().iter().map(|n| n.size).sum::<u64>() as f64),
+                    15.,
+                    INK,
+                )),
+        )
+        .child(
+            button(
+                "Review marked items →",
+                move || s.locked(),
+                move || s.begin_review(Removal::Trash),
+            )
+            .py(px(8.))
+            .px(px(10.)),
         )
 }
-fn selection_panel(s: State) -> impl IntoElement {
+fn disk_space(s: State) -> impl IntoElement {
     view()
-        .gap(px(12.))
-        .child(
-            row()
-                .child(
-                    view()
-                        .w(px(3.))
-                        .h(px(19.))
-                        .bg(move || rgb(category(&s.selection.get().path).1)),
-                )
-                .child(
-                    caption(
-                        move || {
-                            let n = s.selection.get();
-                            if n.name.is_empty() {
-                                "Nothing selected".into()
-                            } else {
-                                n.name
-                            }
-                        },
-                        20.,
-                        INK,
-                    )
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .flex_1()
-                    .number_of_lines(1),
-                ),
-        )
-        .child(caption(move || s.selection.get().path, 11., MUTED))
+        .p(px(16.))
+        .gap(px(9.))
+        .border_t_1()
+        .border_color(rgb(LINE))
+        .bg(rgb(0x141416))
+        .child(caption("DISK SPACE", 10., MUTED))
         .child(caption(
-            move || format_size(s.selection.get().size as f64),
-            38.,
+            move || format!("{} free", format_size(s.snapshot.get().free as f64)),
+            25.,
             INK,
         ))
+        .child(meter(
+            move || {
+                let snapshot = s.snapshot.get();
+                if snapshot.total > 0 {
+                    1. - snapshot.free as f32 / snapshot.total as f32
+                } else {
+                    0.
+                }
+            },
+            5.,
+            0x56b675,
+        ))
         .child(
-            view().h(px(4.)).rounded(px(2.)).bg(rgb(0x26262b)).child(
-                view()
-                    .h(px(4.))
-                    .rounded(px(2.))
-                    .bg(move || rgb(category(&s.selection.get().path).1))
-                    .w(move || {
-                        relative(
-                            (s.selection.get().size as f32
-                                / s.snapshot.get().root.size.max(1) as f32)
-                                .min(1.),
+            row()
+                .justify_between()
+                .child(caption(
+                    move || {
+                        let snapshot = s.snapshot.get();
+                        format!(
+                            "{} used",
+                            format_size(snapshot.total.saturating_sub(snapshot.free) as f64)
                         )
-                    }),
-            ),
+                    },
+                    10.,
+                    MUTED,
+                ))
+                .child(caption(
+                    move || format!("{} total", format_size(s.snapshot.get().total as f64)),
+                    10.,
+                    MUTED,
+                )),
         )
+}
+/// The folder shown, summarized above its contents, so the first page says
+/// something before anything is selected.
+fn folder_summary(s: State) -> impl IntoElement {
+    let folder = move || s.listing.get().node;
+    view()
+        .gap(px(10.))
+        .pb(px(12.))
+        .border_b_1()
+        .border_color(rgb(LINE))
+        .child(caption(move || folder().path, 11., MUTED).number_of_lines(2))
+        .child(caption(
+            move || format_size(s.listing_metric.get().weight(&folder()) as f64),
+            30.,
+            INK,
+        ))
+        .child(meter(
+            move || folder().size as f32 / s.snapshot.get().root.size.max(1) as f32,
+            4.,
+            0x56b675,
+        ))
         .child(
             row()
                 .gap(px(16.))
                 .child(stat("OF SCAN", move || {
                     format!(
                         "{:.1}%",
-                        100. * s.selection.get().size as f64
-                            / s.snapshot.get().root.size.max(1) as f64
+                        100. * folder().size as f64 / s.snapshot.get().root.size.max(1) as f64
                     )
                 }))
-                .child(stat("FILES", move || count(s.selection.get().files))),
+                .child(stat("FILES", move || count(folder().files))),
         )
         .child(
             row()
                 .gap(px(16.))
-                .child(stat("MODIFIED", move || {
-                    modified(s.selection.get().modified)
-                }))
-                .child(stat("KIND", move || category(&s.selection.get().path).0)),
+                .child(stat("MODIFIED", move || modified(folder().modified)))
+                .child(stat("LARGEST", move || {
+                    s.listing
+                        .get()
+                        .children
+                        .first()
+                        .map_or_else(|| "—".to_owned(), |n| n.name.clone())
+                })),
         )
+        .child(caption(
+            "Select a tile or row for details · right-click for actions",
+            10.,
+            MUTED,
+        ))
+}
+/// What the list says when it has no rows: scanning, nothing scanned yet,
+/// no names matching the filter, or an empty folder.
+fn empty_contents(s: State) -> impl IntoElement {
+    let scanning = move || s.busy.get() && s.listing.get().node.path.is_empty();
+    view()
+        .py(px(24.))
+        .items_center()
+        .gap(px(6.))
+        .child(caption(
+            move || {
+                if scanning() {
+                    "Scanning…".to_owned()
+                } else if s.listing.get().node.path.is_empty() {
+                    "Nothing scanned yet".to_owned()
+                } else if !s.query.get().is_empty() {
+                    format!("No names match “{}”", s.query.get())
+                } else {
+                    "This folder is empty".to_owned()
+                }
+            },
+            12.,
+            INK,
+        ))
         .child(
-            row()
-                .gap(px(6.))
-                .child(button(
-                    "Open folder",
-                    move || s.locked() || !s.selection.get().directory,
-                    move || s.enter(s.selection.get_untracked()),
-                ))
-                .child(button(
-                    "Mark / unmark",
-                    move || s.locked(),
-                    move || s.mark(s.selection.get_untracked()),
-                )),
+            caption(
+                move || {
+                    if scanning() {
+                        let p = s.progress.get().unwrap_or_default();
+                        format!(
+                            "{} folders · {} files · {} found",
+                            count(p.directories),
+                            count(p.files),
+                            format_size(p.bytes as f64)
+                        )
+                    } else if s.listing.get().node.path.is_empty() {
+                        "Scan a folder with ⟳ or edit its path with ✎.".to_owned()
+                    } else if !s.query.get().is_empty() {
+                        "Clear the filter to see every item.".to_owned()
+                    } else if !s.hidden.get() {
+                        "Hidden files are not shown; see View options.".to_owned()
+                    } else {
+                        String::new()
+                    }
+                },
+                10.,
+                MUTED,
+            )
+            .text_center(),
         )
+}
+fn contents_page(s: State) -> impl IntoElement {
+    scroll().flex_1().child(
+        view()
+            .p(px(14.))
+            .gap(px(10.))
+            .child(when(
+                move || !s.listing.get().node.path.is_empty(),
+                move || folder_summary(s),
+            ))
+            .child(
+                row()
+                    .justify_between()
+                    .child(caption(
+                        move || format!("{} ITEMS", count(s.listing.get().count as u64)),
+                        10.,
+                        MUTED,
+                    ))
+                    .child(caption(
+                        move || {
+                            let v = s.listing.get();
+                            if v.count == 0 {
+                                String::new()
+                            } else {
+                                format!(
+                                    "{}–{}",
+                                    v.offset + 1,
+                                    (v.offset + v.page_size).min(v.count)
+                                )
+                            }
+                        },
+                        10.,
+                        MUTED,
+                    )),
+            )
+            .child(when(
+                move || s.listing.get().count > 80,
+                move || {
+                    row()
+                        .justify_between()
+                        .child(
+                            button(
+                                "‹ Previous",
+                                move || s.locked() || s.page.get() == 0,
+                                move || s.page.update(|p| *p = p.saturating_sub(80)),
+                            )
+                            .py(px(4.))
+                            .px(px(8.)),
+                        )
+                        .child(
+                            button(
+                                "Next ›",
+                                move || {
+                                    let v = s.listing.get();
+                                    s.locked() || v.offset + v.page_size >= v.count
+                                },
+                                move || s.page.update(|p| *p += 80),
+                            )
+                            .py(px(4.))
+                            .px(px(8.)),
+                        )
+                },
+            ))
+            .child(node_menu(
+                s,
+                view().child(each(
+                    move || s.listing.get().children,
+                    |node| node.path.clone(),
+                    move |node, _| directory_row(s, node),
+                )),
+            ))
+            .child(when(
+                move || s.listing.get().children.is_empty(),
+                move || empty_contents(s),
+            )),
+    )
+}
+fn details_page(s: State) -> impl IntoElement {
+    scroll().flex_1().child(
+        view()
+            .p(px(16.))
+            .gap(px(12.))
+            .child(
+                row()
+                    .child(
+                        view()
+                            .w(px(3.))
+                            .h(px(19.))
+                            .bg(move || rgb(category(&s.selection.get().path).1)),
+                    )
+                    .child(
+                        caption(move || s.selection.get().name, 20., INK)
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .flex_1()
+                            .number_of_lines(1),
+                    ),
+            )
+            .child(caption(move || s.selection.get().path, 11., MUTED))
+            .child(caption(
+                move || format_size(s.selection.get().size as f64),
+                38.,
+                INK,
+            ))
+            .child(meter(
+                move || s.selection.get().size as f32 / s.snapshot.get().root.size.max(1) as f32,
+                4.,
+                0x56b675,
+            ))
+            .child(
+                row()
+                    .gap(px(16.))
+                    .child(stat("OF SCAN", move || {
+                        format!(
+                            "{:.1}%",
+                            100. * s.selection.get().size as f64
+                                / s.snapshot.get().root.size.max(1) as f64
+                        )
+                    }))
+                    .child(stat("FILES", move || count(s.selection.get().files))),
+            )
+            .child(
+                row()
+                    .gap(px(16.))
+                    .child(stat("MODIFIED", move || {
+                        modified(s.selection.get().modified)
+                    }))
+                    .child(stat("KIND", move || category(&s.selection.get().path).0)),
+            )
+            .child(
+                row()
+                    .gap(px(6.))
+                    .child(button(
+                        "Open folder",
+                        move || s.locked() || !s.selection.get().directory,
+                        move || s.enter(s.selection.get_untracked()),
+                    ))
+                    .child(button(
+                        move || {
+                            let marked = s
+                                .marked
+                                .get()
+                                .iter()
+                                .any(|n| n.path == s.selection.get().path);
+                            if marked { "Unmark" } else { "Mark" }
+                        },
+                        move || s.locked(),
+                        move || s.mark(s.selection.get_untracked()),
+                    )),
+            ),
+    )
 }
 fn modified(seconds: f64) -> String {
     if seconds <= 0. {
@@ -1174,14 +1461,26 @@ fn modified(seconds: f64) -> String {
     }
 }
 fn directory_row(s: State, node: ReadSignal<Node>) -> impl IntoElement {
+    let departing = node.get_untracked();
+    cleanup(move || s.hover(departing, false));
     view()
         .py(px(7.))
+        .px(px(6.))
         .gap(px(5.))
-        .border_b_1()
-        .border_color(rgb(0x242428))
+        .rounded(px(4.))
+        .bg(move || {
+            rgba(if s.selection.get().path == node.get().path {
+                0x1b2a20ff
+            } else {
+                0
+            })
+        })
+        .hover(|s| s.bg(rgb(0x1a1a1e)))
         .role(AccessibilityRole::Button)
         .label(move || format!("Select {}", node.get().name))
         .on_press(move |_: &()| s.choose(node.get_untracked()))
+        .on_hover_in(move |_: &()| s.hover(node.get_untracked(), true))
+        .on_hover_out(move |_: &()| s.hover(node.get_untracked(), false))
         .child(
             row()
                 .gap(px(6.))
@@ -1230,134 +1529,327 @@ fn directory_row(s: State, node: ReadSignal<Node>) -> impl IntoElement {
                     MUTED,
                 )),
         )
-        .child(
-            view().h(px(2.)).bg(rgb(0x101012)).child(
-                view()
-                    .h(px(2.))
-                    .bg(move || rgb(category(&node.get().path).1))
-                    .w(move || {
-                        relative(
-                            s.listing_metric.get().weight(&node.get()) as f32
-                                / s.listing_metric.get().weight(&s.listing.get().node).max(1)
-                                    as f32,
-                        )
-                    }),
-            ),
-        )
-}
-fn review_panel(s: State) -> impl IntoElement {
-    view()
-        .gap(px(12.))
-        .child(caption(
-            move || match s.removal.get() {
-                Removal::Trash => "Move these items to Trash?",
-                Removal::Delete => "Permanently delete these items?",
-                Removal::Empty => "Empty the system Trash?",
-            },
-            15.,
-            INK,
-        ))
-        .child(caption(
+        .child(meter(
             move || {
-                if s.removal.get() == Removal::Trash {
-                    "Recoverable from the system Trash."
-                } else {
-                    "This permanently removes files and cannot be undone."
-                }
+                s.listing_metric.get().weight(&node.get()) as f32
+                    / s.listing_metric.get().weight(&s.listing.get().node).max(1) as f32
             },
-            11.,
-            MUTED,
+            2.,
+            0x3d6b4c,
         ))
-        .child(Each::new(
+}
+fn removal_progress(s: State) -> impl IntoElement {
+    let progress = move || s.removing.get().unwrap_or_default();
+    view()
+        .test_id("removal-progress")
+        .gap(px(8.))
+        .p(px(12.))
+        .rounded(px(7.))
+        .border_1()
+        .border_color(rgb(LINE))
+        .bg(rgb(0x141416))
+        .child(
+            row()
+                .justify_between()
+                .child(caption(
+                    move || match s.removal.get() {
+                        Removal::Trash => "Moving to Trash",
+                        Removal::Delete => "Deleting",
+                        Removal::Empty => "Emptying Trash",
+                    },
+                    11.,
+                    INK,
+                ))
+                .child(caption(
+                    move || {
+                        if s.removal.get() == Removal::Empty {
+                            String::new()
+                        } else {
+                            format!("{}%", progress().percent)
+                        }
+                    },
+                    11.,
+                    INK,
+                )),
+        )
+        .child(meter(
             move || {
                 if s.removal.get() == Removal::Empty {
-                    Vec::new()
+                    1.
                 } else {
-                    s.reviewed.get()
+                    progress().percent as f32 / 100.
                 }
             },
-            |n| n.path.clone(),
-            move |node, _| {
-                view()
-                    .gap(px(7.))
-                    .py(px(6.))
-                    .child(caption(move || node.get().path, 11., INK))
-                    .child(button(
-                        move || format!("Exclude · {}", format_size(node.get().size as f64)),
-                        move || s.busy.get(),
-                        move || {
-                            s.reviewed.update(|nodes| {
-                                nodes.retain(|n| n.path != node.get_untracked().path)
-                            })
-                        },
-                    ))
-            },
+            4.,
+            RED,
         ))
-        .child(
-            colored_control(
-                move || {
-                    if s.busy.get() {
-                        "Working…"
-                    } else {
-                        match s.removal.get() {
-                            Removal::Trash => "Confirm move to Trash",
-                            Removal::Delete => "Confirm permanent deletion",
-                            Removal::Empty => "Confirm empty Trash",
-                        }
-                    }
-                },
-                None,
-                move || {
-                    s.locked() || s.removal.get() != Removal::Empty && s.reviewed.get().is_empty()
-                },
-                move || {
-                    if s.removal.get() == Removal::Trash {
-                        INK
-                    } else {
-                        RED
-                    }
-                },
-                move || s.commit(),
-            )
-            .bg(move || {
-                rgb(if s.removal.get() == Removal::Trash {
-                    0x14251c
-                } else {
-                    0x38201e
-                })
-            })
-            .border_color(move || {
-                rgb(if s.removal.get() == Removal::Trash {
-                    0x68b985
-                } else {
-                    0xa65a50
-                })
-            }),
-        )
-        .child(If::new(
-            move || s.removal.get() == Removal::Trash,
+        .child(when(
+            move || s.removal.get() != Removal::Empty,
             move || {
-                colored_control(
-                    "Delete permanently",
-                    None,
-                    move || s.locked() || s.reviewed.get().is_empty(),
-                    RED,
-                    move || s.removal.set(Removal::Delete),
-                )
-                .bg(rgb(0x38201e))
-                .border_color(rgb(0xa65a50))
+                view()
+                    .gap(px(5.))
+                    .child(caption(
+                        move || {
+                            let p = progress();
+                            format!(
+                                "{} of {} items · {} of {} files",
+                                p.items,
+                                p.total_items,
+                                count(p.files),
+                                count(p.total_files)
+                            )
+                        },
+                        10.,
+                        MUTED,
+                    ))
+                    .child(caption(
+                        move || {
+                            let p = progress();
+                            format!(
+                                "{} of {}",
+                                format_size(p.bytes as f64),
+                                format_size(p.total_bytes as f64)
+                            )
+                        },
+                        10.,
+                        MUTED,
+                    ))
+                    .child(caption(move || progress().current, 10., MUTED).number_of_lines(1))
             },
-        ))
-        .child(button(
-            "Back to explorer",
-            move || s.busy.get(),
-            move || s.review.set(false),
         ))
 }
+fn review_page(s: State) -> impl IntoElement {
+    scroll().flex_1().child(
+        view()
+            .p(px(16.))
+            .gap(px(12.))
+            .child(caption(
+                move || match s.removal.get() {
+                    Removal::Trash => "Move these items to Trash?",
+                    Removal::Delete => "Permanently delete these items?",
+                    Removal::Empty => "Empty the system Trash?",
+                },
+                15.,
+                INK,
+            ))
+            .child(caption(
+                move || {
+                    if s.removal.get() == Removal::Trash {
+                        "Recoverable from the system Trash."
+                    } else {
+                        "This permanently removes files and cannot be undone."
+                    }
+                },
+                11.,
+                MUTED,
+            ))
+            .child(when(
+                move || s.removing.get().is_some(),
+                move || removal_progress(s),
+            ))
+            .child(each(
+                move || {
+                    if s.removal.get() == Removal::Empty {
+                        Vec::new()
+                    } else {
+                        s.reviewed.get()
+                    }
+                },
+                |n| n.path.clone(),
+                move |node, _| {
+                    row()
+                        .gap(px(8.))
+                        .py(px(6.))
+                        .border_b_1()
+                        .border_color(rgb(0x242428))
+                        .child(
+                            view()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .gap(px(3.))
+                                .child(
+                                    caption(move || node.get().name, 11., INK).number_of_lines(1),
+                                )
+                                .child(caption(
+                                    move || format_size(node.get().size as f64),
+                                    10.,
+                                    MUTED,
+                                )),
+                        )
+                        .child(
+                            button(
+                                "Exclude",
+                                move || s.busy.get(),
+                                move || {
+                                    s.reviewed.update(|nodes| {
+                                        nodes.retain(|n| n.path != node.get_untracked().path)
+                                    })
+                                },
+                            )
+                            .label(move || format!("Exclude {}", node.get().path))
+                            .py(px(5.))
+                            .px(px(8.)),
+                        )
+                },
+            ))
+            .child(
+                colored_control(
+                    move || {
+                        if s.busy.get() {
+                            "Working…"
+                        } else {
+                            match s.removal.get() {
+                                Removal::Trash => "Confirm move to Trash",
+                                Removal::Delete => "Confirm permanent deletion",
+                                Removal::Empty => "Confirm empty Trash",
+                            }
+                        }
+                    },
+                    None,
+                    move || {
+                        s.locked()
+                            || s.removal.get() != Removal::Empty && s.reviewed.get().is_empty()
+                    },
+                    move || {
+                        if s.removal.get() == Removal::Trash {
+                            INK
+                        } else {
+                            RED
+                        }
+                    },
+                    move || s.commit(),
+                )
+                .bg(move || {
+                    rgb(if s.removal.get() == Removal::Trash {
+                        0x14251c
+                    } else {
+                        0x38201e
+                    })
+                })
+                .border_color(move || {
+                    rgb(if s.removal.get() == Removal::Trash {
+                        0x68b985
+                    } else {
+                        0xa65a50
+                    })
+                }),
+            )
+            .child(when(
+                move || s.removal.get() == Removal::Trash,
+                move || {
+                    colored_control(
+                        "Delete permanently",
+                        None,
+                        move || s.locked() || s.reviewed.get().is_empty(),
+                        RED,
+                        move || s.removal.set(Removal::Delete),
+                    )
+                    .bg(rgb(0x38201e))
+                    .border_color(rgb(0xa65a50))
+                },
+            )),
+    )
+}
 fn statusbar(s: State) -> impl IntoElement {
-    row().test_id("statusbar").h(px(28.)).flex_shrink(0.).gap(px(16.)).px(px(12.)).border_t_1().border_color(rgb(LINE)).bg(rgb(PANEL))
-        .child(If::new(move||s.progress.get().is_some(),move||row().test_id("scan-progress").flex_1().min_w(px(0.)).gap(px(12.))
-            .child(caption(move || format!("Scanning folders · ~{}%", s.progress.get().unwrap_or_default().percent),10.,GREEN))
-            .child(caption(move||{let p=s.progress.get().unwrap_or_default();format!("{} folders · {} files · {} found · {}s elapsed{}",count(p.directories),count(p.files),format_size(p.bytes as f64),s.seconds.get(),if p.errors>0{format!(" · {} skipped",p.errors)}else{String::new()})},10.,MUTED).number_of_lines(1).flex_1())))
-        .child(If::new(move||s.progress.get().is_none(),move||row().flex_1().gap(px(16.)).child(caption("Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   ⌥↑ Parent   ⌘R Rescan   Esc Close review",10.,MUTED)).child(caption(move||s.message.get(),10.,MUTED).number_of_lines(1).flex_1().text_right())))
+    row()
+        .test_id("statusbar")
+        .h(px(28.))
+        .flex_shrink(0.)
+        .gap(px(16.))
+        .px(px(12.))
+        .border_t_1()
+        .border_color(rgb(LINE))
+        .bg(rgb(PANEL))
+        .child(when(
+            move || s.progress.get().is_some(),
+            move || {
+                row()
+                    .test_id("scan-progress")
+                    .flex_1()
+                    .min_w(px(0.))
+                    .gap(px(12.))
+                    .child(caption(
+                        move || {
+                            format!(
+                                "Scanning folders · ~{}%",
+                                s.progress.get().unwrap_or_default().percent
+                            )
+                        },
+                        10.,
+                        GREEN,
+                    ))
+                    .child(
+                        caption(
+                            move || {
+                                let p = s.progress.get().unwrap_or_default();
+                                format!(
+                                    "{} folders · {} files · {} found · {}s elapsed{}",
+                                    count(p.directories),
+                                    count(p.files),
+                                    format_size(p.bytes as f64),
+                                    s.seconds.get(),
+                                    if p.errors > 0 {
+                                        format!(" · {} skipped", p.errors)
+                                    } else {
+                                        String::new()
+                                    }
+                                )
+                            },
+                            10.,
+                            MUTED,
+                        )
+                        .number_of_lines(1)
+                        .flex_1(),
+                    )
+            },
+        ))
+        .child(when(
+            move || s.removing.get().is_some(),
+            move || {
+                caption(
+                    move || {
+                        let p = s.removing.get().unwrap_or_default();
+                        match s.removal.get() {
+                            Removal::Empty => "Emptying Trash…".to_owned(),
+                            mode => format!(
+                                "{} · {}% · {} of {} files · {} of {}",
+                                if mode == Removal::Trash {
+                                    "Moving to Trash"
+                                } else {
+                                    "Deleting"
+                                },
+                                p.percent,
+                                count(p.files),
+                                count(p.total_files),
+                                format_size(p.bytes as f64),
+                                format_size(p.total_bytes as f64)
+                            ),
+                        }
+                    },
+                    10.,
+                    RED,
+                )
+                .number_of_lines(1)
+                .flex_1()
+            },
+        ))
+        .child(when(
+            move || s.progress.get().is_none() && s.removing.get().is_none(),
+            move || {
+                row()
+                    .flex_1()
+                    .gap(px(16.))
+                    .child(caption(
+                        "Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   Right-click Menu   ⌥↑ Parent   ⌘R Rescan   Esc Back",
+                        10.,
+                        MUTED,
+                    ))
+                    .child(
+                        caption(move || s.message.get(), 10., MUTED)
+                            .number_of_lines(1)
+                            .flex_1()
+                            .text_right(),
+                    )
+            },
+        ))
 }

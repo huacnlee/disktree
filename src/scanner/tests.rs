@@ -1056,3 +1056,55 @@ fn million_entry_memory_budget() {
     assert!(peak < 48 * 1024 * 1024, "peak heap exceeded 48 MiB: {peak}");
     std::hint::black_box(walker);
 }
+
+#[test]
+fn permanent_removal_reports_progress_without_following_links() {
+    let f = Fixture::new();
+    for name in [
+        "tree/a",
+        "tree/b",
+        "tree/deep/c",
+        "tree/deep/er/d",
+        "outside/keep",
+    ] {
+        f.file(name);
+    }
+    std::os::unix::fs::symlink(f.0.join("outside"), f.0.join("tree/deep/link")).unwrap();
+    let index = f.scan();
+    let tree = f.0.join("tree").to_string_lossy().into_owned();
+    let response = dispatch("/delete", &json!({"id":"missing","paths":[tree]}));
+    assert!(response.is_err(), "removal requires the active scan");
+    let published = Arc::new(Mutex::new(Value::Null));
+    let result = remove_with_progress(
+        &index,
+        &json!({"paths":[tree]}),
+        true,
+        Some(published.clone()),
+    )
+    .unwrap();
+    assert_eq!(result["completed"], json!([tree]));
+    assert!(!f.0.join("tree").exists());
+    assert!(f.0.join("outside/keep").exists());
+    let progress = published.lock().unwrap().clone();
+    assert_eq!(progress["percent"], 100);
+    assert_eq!(progress["items"], 1);
+    assert_eq!(progress["files"], progress["totalFiles"]);
+    assert_eq!(progress["bytes"], progress["totalBytes"]);
+}
+
+#[test]
+fn removing_a_tree_refuses_a_directory_replaced_since_it_was_checked() {
+    let f = Fixture::new();
+    let victim = f.file("victim/file");
+    let meta = fs::metadata(f.0.join("victim")).unwrap();
+    let mut files = 0;
+    let error = remove_tree(
+        &f.0.join("victim").to_string_lossy(),
+        meta.dev() + 1,
+        &mut |_| files += 1,
+    )
+    .unwrap_err();
+    assert!(error.contains("mounted volumes"), "{error}");
+    assert!(victim.exists());
+    assert_eq!(files, 0);
+}

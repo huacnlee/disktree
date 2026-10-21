@@ -28,13 +28,13 @@ pub(crate) struct State {
     pub browsing: Signal<bool>,
     pub message: Signal<String>,
     pub progress: Signal<Option<Progress>>,
+    pub removing: Signal<Option<RemovalProgress>>,
     pub seconds: Signal<u64>,
     pub marked: Signal<Vec<Node>>,
     pub reviewed: Signal<Vec<Node>>,
     pub review: Signal<bool>,
     pub removal: Signal<Removal>,
     pub editing: Signal<bool>,
-    pub options: Signal<bool>,
     pub hovered: Signal<Vec<Node>>,
     pub in_map: Signal<bool>,
     pub generation: Signal<u64>,
@@ -66,13 +66,13 @@ impl State {
             browsing: signal(false),
             message: signal("Choose a folder to discover what fills your disk.".into()),
             progress: signal(None),
+            removing: signal(None),
             seconds: signal(0),
             marked: signal(Vec::new()),
             reviewed: signal(Vec::new()),
             review: signal(false),
             removal: signal(Removal::Trash),
             editing: signal(false),
-            options: signal(false),
             hovered: signal(Vec::new()),
             in_map: signal(false),
             generation: signal(0),
@@ -158,8 +158,7 @@ impl State {
                 let started = Instant::now();
                 while self.busy.get_untracked() && self.scan_generation.get_untracked() == run {
                     timer(Duration::from_millis(200)).await;
-                    let value =
-                        request("/scan-progress", json!({"progressToken":poll_token})).await;
+                    let value = request("/progress", json!({"progressToken":poll_token})).await;
                     if self.scan_generation.get_untracked() != run || !self.busy.get_untracked() {
                         break;
                     }
@@ -309,6 +308,14 @@ impl State {
             self.mark(node);
         }
     }
+    /// Steps back one sidebar page: the review, then the details.
+    pub fn close(self) {
+        if self.review.get_untracked() {
+            self.review.set(false);
+        } else {
+            self.selection.set(self.listing.get_untracked().node);
+        }
+    }
     pub fn begin_review(self, mode: Removal) {
         if self.locked() || mode != Removal::Empty && self.marked.get_untracked().is_empty() {
             return;
@@ -326,33 +333,95 @@ impl State {
         {
             return;
         }
-        self.busy.set(true);
-        self.generation.update(|n| *n += 1);
-        self.owner.run(move || spawn(async move {
-            let mode=self.removal.get_untracked();
-            let route=match mode{Removal::Trash=>"/trash",Removal::Delete=>"/delete",Removal::Empty=>"/empty-trash"};
-            let result=request(route,json!({"id":self.snapshot.get_untracked().id,"paths":self.reviewed.get_untracked().iter().map(|n|n.path.clone()).collect::<Vec<_>>()})).await;
-            batch(||{
-                match result {
-                    Ok(result)=>{
-                        let completed:Vec<String>=serde_json::from_value(result["completed"].clone()).unwrap_or_default();
-                        let retain=|n:&Node|!completed.iter().any(|p|n.path==*p || n.path.starts_with(&(p.clone()+"/")));
-                        self.marked.update(|nodes|nodes.retain(retain));self.reviewed.update(|nodes|nodes.retain(retain));
-                        if let Some(patch)=result.get("snapshot").and_then(Value::as_object){
-                            self.snapshot.update(|data|{
-                                if let Some(id)=patch.get("id").and_then(Value::as_str){data.id=id.into();}
-                                if let Some(root)=patch.get("root").and_then(|v|serde_json::from_value(v.clone()).ok()){data.root=root;}
-                                if let Some(free)=patch.get("free").and_then(Value::as_u64){data.free=free;}
-                            });
-                        }
-                        let error=result.get("error").and_then(Value::as_str);
-                        self.message.set(error.map(str::to_owned).unwrap_or_else(||if mode==Removal::Empty{"Trash emptied.".into()}else{format!("{} items removed.",completed.len())}));
-                        self.review.set(error.is_some());self.loaded.set(Value::Null);
+        let run = self.scan_generation.get_untracked() + 1;
+        let token = format!("removal-{run}");
+        batch(|| {
+            self.scan_generation.set(run);
+            self.busy.set(true);
+            self.removing.set(Some(RemovalProgress::default()));
+            self.generation.update(|n| *n += 1);
+        });
+        let poll_token = token.clone();
+        self.owner.run(move || {
+            spawn(async move {
+                while self.busy.get_untracked() && self.scan_generation.get_untracked() == run {
+                    timer(Duration::from_millis(120)).await;
+                    let value = request("/progress", json!({"progressToken":poll_token})).await;
+                    if self.scan_generation.get_untracked() != run || !self.busy.get_untracked() {
+                        break;
                     }
-                    Err(e)=>self.message.set(e),
+                    if let Ok(value) = value
+                        && let Ok(progress) = serde_json::from_value::<RemovalProgress>(value)
+                    {
+                        self.removing.set(Some(progress));
+                    }
                 }
-                self.busy.set(false);
-            });
-        }));
+            })
+        });
+        self.owner.run(move || {
+            spawn(async move {
+                let mode = self.removal.get_untracked();
+                let route = match mode {
+                    Removal::Trash => "/trash",
+                    Removal::Delete => "/delete",
+                    Removal::Empty => "/empty-trash",
+                };
+                let paths: Vec<String> =
+                    self.reviewed.get_untracked().iter().map(|n| n.path.clone()).collect();
+                let result = request(
+                    route,
+                    json!({"id":self.snapshot.get_untracked().id,"paths":paths,"progressToken":token}),
+                )
+                .await;
+                batch(|| {
+                    match result {
+                        Ok(result) => {
+                            let completed: Vec<String> =
+                                serde_json::from_value(result["completed"].clone())
+                                    .unwrap_or_default();
+                            let retain = |n: &Node| {
+                                !completed
+                                    .iter()
+                                    .any(|p| n.path == *p || n.path.starts_with(&(p.clone() + "/")))
+                            };
+                            self.marked.update(|nodes| nodes.retain(retain));
+                            self.reviewed.update(|nodes| nodes.retain(retain));
+                            if !retain(&self.selection.get_untracked()) {
+                                self.selection.set(self.listing.get_untracked().node);
+                            }
+                            if let Some(patch) = result.get("snapshot").and_then(Value::as_object) {
+                                self.snapshot.update(|data| {
+                                    if let Some(id) = patch.get("id").and_then(Value::as_str) {
+                                        data.id = id.into();
+                                    }
+                                    if let Some(root) = patch
+                                        .get("root")
+                                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                                    {
+                                        data.root = root;
+                                    }
+                                    if let Some(free) = patch.get("free").and_then(Value::as_u64) {
+                                        data.free = free;
+                                    }
+                                });
+                            }
+                            let error = result.get("error").and_then(Value::as_str);
+                            self.message.set(error.map(str::to_owned).unwrap_or_else(|| {
+                                if mode == Removal::Empty {
+                                    "Trash emptied.".into()
+                                } else {
+                                    format!("{} items removed.", completed.len())
+                                }
+                            }));
+                            self.review.set(error.is_some());
+                            self.loaded.set(Value::Null);
+                        }
+                        Err(e) => self.message.set(e),
+                    }
+                    self.busy.set(false);
+                    self.removing.set(None);
+                });
+            })
+        });
     }
 }

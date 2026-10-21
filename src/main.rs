@@ -27,8 +27,6 @@ fn app() -> Result<ExitCode, Box<dyn std::error::Error>> {
     {
         options.fps = performance;
     }
-    // The runtime's deterministic script interface is used by CI smoke tests.
-    options.script = std::env::var("DISKTREE_UI_SCRIPT").ok();
     let result = platform::run_app(
         platform::AppSource::Rust(
             platform::Root::of::<disktree::App>().app_id("com.huacnlee.disktree"),

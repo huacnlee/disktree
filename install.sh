@@ -15,14 +15,13 @@ case "$version" in *[!a-zA-Z0-9._-]*) echo 'Invalid version' >&2; exit 1;; esac
 archive=disktree-$version-$arch-$platform.tar.gz
 base=https://github.com/$repo/releases/download/$version
 scratch=$(mktemp -d)
-release=
-activated=no
+staging=
+retired=
 cleanup() {
   status=$?
   trap - EXIT HUP INT TERM
-  if [ -n "$release" ] && [ "$activated" = no ]; then
-    rm -rf -- "$release"
-  fi
+  [ -z "$staging" ] || rm -rf -- "$staging"
+  [ -z "$retired" ] || rm -rf -- "$retired"
   rm -rf -- "$scratch"
   exit "$status"
 }
@@ -41,43 +40,84 @@ fi
 data_home=${XDG_DATA_HOME:-$HOME/.local/share}
 install_root=${DISKTREE_INSTALL_DIR:-$data_home/disktree}
 bin_dir=${DISKTREE_BIN_DIR:-$HOME/.local/bin}
-mkdir -p "$install_root" "$bin_dir"
-install_root=$(CDPATH= cd -- "$install_root" && pwd -P)
-release=$(mktemp -d "$install_root/$version-$arch-$platform.XXXXXX")
-tar -xzf "$scratch/$archive" -C "$release"
-[ -x "$release/disktree" ] || { echo 'Release has no disktree executable' >&2; exit 1; }
-# Keep a validated release if activation fails partway through: an entry point
-# may already reference it. Historical versions are pruned only after success.
-activated=yes
-ln -sfn "$release/disktree" "$bin_dir/disktree"
-if [ "$platform" = apple-darwin ] && [ -d "$release/Disktree.app" ]; then
-  apps=${DISKTREE_APPS_DIR:-$HOME/Applications}
-  mkdir -p "$apps"
-  ln -sfn "$release/Disktree.app" "$apps/Disktree.app"
-elif [ -f "$release/disktree.desktop" ]; then
-  applications=${XDG_DATA_HOME:-$HOME/.local/share}/applications
-  mkdir -p "$applications"
-  icons=${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps
-  mkdir -p "$icons"
-  cp "$release/resources/icon.svg" "$icons/disktree.svg"
-  # Quote the executable path so home directories containing spaces work.
-  escaped=$(printf '%s' "$release/disktree" | sed 's/\\/\\\\/g; s/"/\\"/g; s/`/\\`/g; s/\$/\\$/g')
-  sed "s|^Exec=.*|Exec=\"$escaped\"|" "$release/disktree.desktop" > "$applications/disktree.desktop"
-fi
-# Remove only directories created by this installer, across supported targets.
-# Never follow symlinks or remove unrelated content in a custom install root.
+marker=.disktree-install
+lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+# Every release lives at the same fixed path, so launchers, the Dock and
+# Spotlight only ever see one Disktree. Older installers kept one directory per
+# version; those are installer-owned and removed during the upgrade.
+versioned() {
+  case "${1##*/}" in
+    v[0-9]*-aarch64-apple-darwin.??????|v[0-9]*-x86_64-apple-darwin.??????|v[0-9]*-aarch64-unknown-linux-gnu.??????|v[0-9]*-x86_64-unknown-linux-gnu.??????)
+      [ -d "$1" ] && [ ! -L "$1" ];;
+    *) return 1;;
+  esac
+}
+forget_app() {
+  if [ -x "$lsregister" ] && [ -d "$1/Disktree.app" ]; then
+    "$lsregister" -u "$1/Disktree.app" >/dev/null 2>&1 || :
+  fi
+}
 prune_versions() {
-  [ -d "$1" ] || return 0
-  root=$(CDPATH= cd -- "$1" && pwd -P)
-  for old in "$root"/v*; do
-    [ -d "$old" ] && [ ! -L "$old" ] && [ "$old" != "$release" ] || continue
-    case "${old##*/}" in
-      v[0-9]*-aarch64-apple-darwin.??????|v[0-9]*-x86_64-apple-darwin.??????|v[0-9]*-aarch64-unknown-linux-gnu.??????|v[0-9]*-x86_64-unknown-linux-gnu.??????)
-        rm -rf -- "$old";;
-    esac
+  [ -d "$1" ] && [ ! -L "$1" ] || return 0
+  for old in "$1"/v*; do
+    versioned "$old" || continue
+    forget_app "$old"
+    rm -rf -- "$old"
   done
 }
-prune_versions "$install_root"
+# Replace an existing root only when this installer owns everything in it.
+owned_root() {
+  [ -d "$1" ] && [ ! -L "$1" ] || return 1
+  [ -f "$1/$marker" ] && return 0
+  for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    [ "${entry##*/}" = .DS_Store ] && continue
+    versioned "$entry" || return 1
+  done
+}
+mkdir -p "$bin_dir"
+parent=$(dirname -- "$install_root")
+mkdir -p "$parent"
+parent=$(CDPATH= cd -- "$parent" && pwd -P)
+install_root=$parent/${install_root##*/}
+if [ -e "$install_root" ] || [ -L "$install_root" ]; then
+  owned_root "$install_root" || { printf '%s is not a Disktree installation; refusing to replace it\n' "$install_root" >&2; exit 1; }
+fi
+# Unpack beside the destination so activation is a rename on one filesystem.
+staging=$(mktemp -d "$parent/.disktree-staging.XXXXXX")
+tar -xzf "$scratch/$archive" -C "$staging"
+[ -x "$staging/disktree" ] || { echo 'Release has no disktree executable' >&2; exit 1; }
+printf '%s %s-%s\n' "$version" "$arch" "$platform" > "$staging/$marker"
+if [ -d "$install_root" ]; then
+  prune_versions "$install_root"
+  forget_app "$install_root"
+  retired=$(mktemp -d "$parent/.disktree-retired.XXXXXX")
+  mv -- "$install_root" "$retired/"
+  if ! mv -- "$staging" "$install_root"; then
+    mv -- "$retired/${install_root##*/}" "$install_root"
+    echo 'Could not activate the new release' >&2
+    exit 1
+  fi
+else
+  mv -- "$staging" "$install_root"
+fi
+staging=
+ln -sfn "$install_root/disktree" "$bin_dir/disktree"
+if [ "$platform" = apple-darwin ] && [ -d "$install_root/Disktree.app" ]; then
+  apps=${DISKTREE_APPS_DIR:-$HOME/Applications}
+  mkdir -p "$apps"
+  ln -sfn "$install_root/Disktree.app" "$apps/Disktree.app"
+  [ ! -x "$lsregister" ] || "$lsregister" -f "$install_root/Disktree.app" >/dev/null 2>&1 || :
+elif [ -f "$install_root/disktree.desktop" ]; then
+  applications=$data_home/applications
+  mkdir -p "$applications"
+  icons=$data_home/icons/hicolor/scalable/apps
+  mkdir -p "$icons"
+  cp "$install_root/resources/icon.svg" "$icons/disktree.svg"
+  # Quote the executable path so home directories containing spaces work.
+  escaped=$(printf '%s' "$install_root/disktree" | sed 's/\\/\\\\/g; s/"/\\"/g; s/`/\\`/g; s/\$/\\$/g')
+  sed "s|^Exec=.*|Exec=\"$escaped\"|" "$install_root/disktree.desktop" > "$applications/disktree.desktop"
+fi
 if [ -z "${DISKTREE_INSTALL_DIR:-}" ]; then
   legacy=$data_home/nsh-disktree
   if [ -d "$legacy" ] && [ ! -L "$legacy" ]; then
@@ -88,5 +128,5 @@ if [ -z "${DISKTREE_INSTALL_DIR:-}" ]; then
     rmdir "$legacy" 2>/dev/null || :
   fi
 fi
-printf 'Installed Disktree %s to %s\n' "$version" "$bin_dir/disktree"
+printf 'Installed Disktree %s to %s\n' "$version" "$install_root"
 case :${PATH:-}: in *:"$bin_dir":*) ;; *) printf 'Add %s to your PATH, then run disktree.\n' "$bin_dir";; esac

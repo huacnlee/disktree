@@ -755,7 +755,72 @@ fn execute(cmd: &mut Command) -> Result<()> {
         Err(String::from_utf8_lossy(&output.stderr).trim().to_owned())
     }
 }
+// Removal progress is published under the request's token, as scans are.
+// Totals come from the scan; permanent deletion reports each unlinked file.
+struct RemovalProgress {
+    progress: Option<Arc<Mutex<Value>>>,
+    last: Instant,
+    items: usize,
+    total_items: usize,
+    files: u64,
+    total_files: u64,
+    bytes: u64,
+    total_bytes: u64,
+    current: String,
+}
+impl RemovalProgress {
+    fn new(progress: Option<Arc<Mutex<Value>>>, totals: &[(u64, u64)]) -> Self {
+        Self {
+            progress,
+            last: Instant::now() - Duration::from_millis(100),
+            items: 0,
+            total_items: totals.len(),
+            files: 0,
+            total_files: totals.iter().map(|t| t.0).sum(),
+            bytes: 0,
+            total_bytes: totals.iter().map(|t| t.1).sum(),
+            current: String::new(),
+        }
+    }
+    fn percent(&self) -> u8 {
+        let fraction = if self.total_bytes > 0 {
+            self.bytes as f64 / self.total_bytes as f64
+        } else if self.total_files > 0 {
+            self.files as f64 / self.total_files as f64
+        } else {
+            self.items as f64 / self.total_items.max(1) as f64
+        };
+        (fraction.clamp(0., 1.) * 100.) as u8
+    }
+    fn publish(&mut self, force: bool) {
+        if !force && self.last.elapsed() < Duration::from_millis(50) {
+            return;
+        }
+        if let Some(progress) = &self.progress
+            && let Ok(mut value) = progress.lock()
+        {
+            *value = json!({"percent":self.percent(),"items":self.items,"totalItems":self.total_items,
+                "files":self.files.min(self.total_files),"totalFiles":self.total_files,
+                "bytes":self.bytes.min(self.total_bytes),"totalBytes":self.total_bytes,"current":self.current});
+        }
+        self.last = Instant::now();
+    }
+}
+fn publish_progress(data: &Value) -> Result<Arc<Mutex<Value>>> {
+    let progress = Arc::new(Mutex::new(Value::Null));
+    let token = data["progressToken"].as_str().unwrap_or("").to_owned();
+    *PROGRESS.lock().map_err(io)? = Some((token, progress.clone()));
+    Ok(progress)
+}
 fn remove(index: &Index, data: &Value, permanent: bool) -> Result<Value> {
+    remove_with_progress(index, data, permanent, Some(publish_progress(data)?))
+}
+fn remove_with_progress(
+    index: &Index,
+    data: &Value,
+    permanent: bool,
+    published: Option<Arc<Mutex<Value>>>,
+) -> Result<Value> {
     let _access = index.access.lock().map_err(io)?;
     let mut unique = HashSet::default();
     let paths: Vec<String> = data["paths"]
@@ -772,18 +837,174 @@ fn remove(index: &Index, data: &Value, permanent: bool) -> Result<Value> {
         .filter(|p| unique.insert(p.clone()))
         .collect();
     validate_removal(index, &paths, permanent)?;
-    execute_removals(paths, |path| {
-        if permanent {
-            let meta = fs::symlink_metadata(path).map_err(io)?;
-            if meta.is_dir() && !meta.file_type().is_symlink() {
-                fs::remove_dir_all(path).map_err(io)
-            } else {
-                fs::remove_file(path).map_err(io)
-            }
+    let mut totals = vec![];
+    for path in &paths {
+        let node = index.node(
+            index
+                .lookup(path)?
+                .ok_or("Only scanned descendants can be removed")?,
+        )?;
+        totals.push((node.files.max(u64::from(!node.directory)), node.size));
+    }
+    let device = index.root()?.record.device;
+    let mut progress = RemovalProgress::new(published, &totals);
+    progress.publish(true);
+    let mut item = 0;
+    let result = execute_removals(paths, |path| {
+        let (base_files, base_bytes) = (progress.files, progress.bytes);
+        let (files, bytes) = totals[item];
+        progress.current = path.to_owned();
+        progress.publish(true);
+        let result = if permanent {
+            remove_tree(path, device, &mut |size| {
+                progress.files = (progress.files + 1).min(base_files + files);
+                progress.bytes = (progress.bytes + size).min(base_bytes + bytes);
+                progress.publish(false);
+            })
         } else {
             execute(&mut trash_command(path))
+        };
+        if result.is_ok() {
+            item += 1;
+            progress.items = item;
+            progress.files = base_files + files;
+            progress.bytes = base_bytes + bytes;
+            progress.publish(true);
         }
-    })
+        result
+    });
+    progress.current.clear();
+    progress.publish(true);
+    result
+}
+/// Removes `path` without following symbolic links or leaving `device`.
+/// Directories are opened relative to their parent with `O_NOFOLLOW`, so a
+/// directory swapped for a link mid-removal is never traversed.
+fn remove_tree(path: &str, device: u64, on_file: &mut dyn FnMut(u64)) -> Result<()> {
+    let meta = fs::symlink_metadata(path).map_err(io)?;
+    if !meta.is_dir() || meta.file_type().is_symlink() {
+        fs::remove_file(path).map_err(io)?;
+        on_file(meta.blocks() * 512);
+        return Ok(());
+    }
+    let name = CString::new(Path::new(path).as_os_str().as_bytes()).map_err(io)?;
+    // SAFETY: `name` is a valid C string; the descriptor is owned by `Dir`.
+    let fd = unsafe {
+        libc::open(
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    let dir = Dir::open(fd, device, meta.ino())?;
+    remove_contents(dir, device, on_file)?;
+    fs::remove_dir(path).map_err(io)
+}
+struct Dir(*mut libc::DIR);
+impl Dir {
+    /// Takes ownership of `fd`, checking it is still the expected directory.
+    fn open(fd: libc::c_int, device: u64, inode: u64) -> Result<Self> {
+        if fd < 0 {
+            return Err(io(std::io::Error::last_os_error()));
+        }
+        // SAFETY: `fd` is an open descriptor this function owns.
+        unsafe {
+            let mut stat = std::mem::zeroed::<libc::stat>();
+            if libc::fstat(fd, &mut stat) != 0 {
+                let error = std::io::Error::last_os_error();
+                libc::close(fd);
+                return Err(io(error));
+            }
+            if stat.st_dev as u64 != device {
+                libc::close(fd);
+                return Err("Cannot permanently delete across mounted volumes".into());
+            }
+            if stat.st_ino as u64 != inode {
+                libc::close(fd);
+                return Err("Directory changed. Scan again.".into());
+            }
+            let dir = libc::fdopendir(fd);
+            if dir.is_null() {
+                let error = std::io::Error::last_os_error();
+                libc::close(fd);
+                return Err(io(error));
+            }
+            Ok(Self(dir))
+        }
+    }
+    fn fd(&self) -> libc::c_int {
+        // SAFETY: the stream stays open while `self` lives.
+        unsafe { libc::dirfd(self.0) }
+    }
+    fn names(&self) -> Result<Vec<CString>> {
+        let mut names = vec![];
+        loop {
+            // SAFETY: readdir reports errors through errno, cleared first.
+            unsafe {
+                *errno() = 0;
+                let entry = libc::readdir(self.0);
+                if entry.is_null() {
+                    if *errno() != 0 {
+                        return Err(io(std::io::Error::last_os_error()));
+                    }
+                    return Ok(names);
+                }
+                let name = std::ffi::CStr::from_ptr((*entry).d_name.as_ptr());
+                if name.to_bytes() != b"." && name.to_bytes() != b".." {
+                    names.push(name.to_owned());
+                }
+            }
+        }
+    }
+}
+impl Drop for Dir {
+    fn drop(&mut self) {
+        // SAFETY: the stream was opened by `Dir::open` and is closed once.
+        unsafe { libc::closedir(self.0) };
+    }
+}
+#[cfg(target_os = "linux")]
+unsafe fn errno() -> *mut libc::c_int {
+    unsafe { libc::__errno_location() }
+}
+#[cfg(target_os = "macos")]
+unsafe fn errno() -> *mut libc::c_int {
+    unsafe { libc::__error() }
+}
+fn remove_contents(dir: Dir, device: u64, on_file: &mut dyn FnMut(u64)) -> Result<()> {
+    // Read the whole directory before unlinking: removing entries while a
+    // stream is open leaves later readdir results unspecified.
+    let names = dir.names()?;
+    let fd = dir.fd();
+    for name in names {
+        // SAFETY: `fd` is open for the loop and `name` is a valid C string.
+        unsafe {
+            let mut stat = std::mem::zeroed::<libc::stat>();
+            if libc::fstatat(fd, name.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) != 0 {
+                return Err(io(std::io::Error::last_os_error()));
+            }
+            if stat.st_mode & libc::S_IFMT == libc::S_IFDIR {
+                let child = libc::openat(
+                    fd,
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                );
+                remove_contents(
+                    Dir::open(child, device, stat.st_ino as u64)?,
+                    device,
+                    on_file,
+                )?;
+                if libc::unlinkat(fd, name.as_ptr(), libc::AT_REMOVEDIR) != 0 {
+                    return Err(io(std::io::Error::last_os_error()));
+                }
+            } else {
+                if libc::unlinkat(fd, name.as_ptr(), 0) != 0 {
+                    return Err(io(std::io::Error::last_os_error()));
+                }
+                on_file(stat.st_blocks as u64 * 512);
+            }
+        }
+    }
+    Ok(())
 }
 fn execute_removals(
     paths: Vec<String>,
@@ -1010,15 +1231,13 @@ pub(super) fn dispatch(route: &str, data: &Value) -> Result<Value> {
                 .map(String::from)
                 .or_else(|| std::env::var("DISKTREE_ROOT").ok())
                 .unwrap_or_else(|| saved_location(&state_file()).to_string_lossy().into_owned());
-            let progress = Arc::new(Mutex::new(Value::Null));
-            let token = data["progressToken"].as_str().unwrap_or("").to_owned();
-            *PROGRESS.lock().map_err(io)? = Some((token, progress.clone()));
+            let progress = publish_progress(data)?;
             let (index, response) = scan_with_progress(&absolute(&target)?, Some(progress))?;
             save_location(&index.root_path, &state_file())?;
             *INDEX.lock().map_err(io)? = Some(index);
             response
         }
-        "/scan-progress" => {
+        "/progress" | "/scan-progress" => {
             let active = PROGRESS.lock().map_err(io)?;
             match active.as_ref() {
                 Some((token, progress))
@@ -1045,6 +1264,8 @@ pub(super) fn dispatch(route: &str, data: &Value) -> Result<Value> {
             removal_snapshot(data, response, &completed)?
         }
         "/empty-trash" => {
+            *publish_progress(data)?.lock().map_err(io)? =
+                json!({"percent":0,"items":0,"totalItems":0});
             execute(&mut empty_command())?;
             removal_snapshot(data, json!({"completed":true}), &[])?
         }
