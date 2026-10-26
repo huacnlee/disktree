@@ -2,8 +2,8 @@
 //! even though its elements exist, which the interaction checks cannot see.
 use nsh_core::{
     MountItem, NodeId,
+    element::Root,
     geometry::{px, size},
-    ui::Root,
 };
 use nsh_engine::EngineConfig;
 use nsh_testing::Headless;

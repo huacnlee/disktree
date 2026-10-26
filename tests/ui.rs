@@ -1,8 +1,8 @@
 //! Drives the production Rust root and real scanner without a JS runtime.
 use nsh_core::{
     MountItem,
+    element::Root,
     geometry::{px, size},
-    ui::Root,
 };
 use nsh_engine::EngineConfig;
 use nsh_testing::Headless;
