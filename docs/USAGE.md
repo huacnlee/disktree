@@ -1,6 +1,6 @@
 # Disktree for nsh
 
-Development on macOS or Linux (nsh 0.1.1 and Rust; no JS runtime):
+Development on macOS or Linux (nsh 0.3.0 and Rust; no JS runtime):
 
 ```
 nsh run

@@ -1,6 +1,6 @@
 //! Application state. Filesystem work never runs on the UI thread.
 use crate::{model::*, scanner};
-use nsh_core::ui::prelude::*;
+use nsh_core::prelude::*;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 

@@ -10,20 +10,20 @@ serde = { version = "1", features = ["rc"] }
 rustc-hash = "2"
 rusqlite = { version = "=0.40.2", features = ["bundled", "functions"] }
 libc = "0.2"
-nsh-core = "=0.1.1"
-nsh-base = { git = "https://github.com/longbridge/nsh.git", branch = "main", default-features = false }
+nsh-core = "=0.3.0"
+nsh-base = { git = "https://github.com/longbridge/nsh.git", tag = "v0.3.0", default-features = false }
 log = "0.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 rustix = { version = "1.1", features = ["fs"] }
-nsh-platform-macos = { git = "https://github.com/longbridge/nsh.git", branch = "main", default-features = false }
+nsh-platform-macos = { git = "https://github.com/longbridge/nsh.git", tag = "v0.3.0", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nsh-platform-linux = { git = "https://github.com/longbridge/nsh.git", branch = "main", default-features = false }
+nsh-platform-linux = { git = "https://github.com/longbridge/nsh.git", tag = "v0.3.0", default-features = false }
 
 [dev-dependencies]
-nsh-engine = { git = "https://github.com/longbridge/nsh.git", branch = "main", default-features = false }
-nsh-testing = { git = "https://github.com/longbridge/nsh.git", branch = "main", default-features = false }
+nsh-engine = { git = "https://github.com/longbridge/nsh.git", tag = "v0.3.0", default-features = false }
+nsh-testing = { git = "https://github.com/longbridge/nsh.git", tag = "v0.3.0", default-features = false }
 
 # Keep filesystem scanning fast when launching with `cargo run` too.
 [profile.dev.package.disktree]
@@ -40,4 +40,4 @@ opt-level = 3
 # Generated NSH CLI hosts patch registry dependencies to their own core.
 # Use the same Git core as the platforms for direct Cargo builds.
 [patch.crates-io]
-nsh-core = { git = "https://github.com/longbridge/nsh.git", branch = "main" }
+nsh-core = { git = "https://github.com/longbridge/nsh.git", tag = "v0.3.0" }

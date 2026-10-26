@@ -3,10 +3,12 @@ use crate::{
     model::*,
     state::{Removal, State},
 };
-use nsh_base::{MenuEvent, context_menu, menu, menu_item, menu_separator, nav_page, nav_stack};
+use nsh_base::{
+    MenuEvent, context_menu, input, menu, menu_item, menu_separator, nav_page, nav_stack, tooltip,
+};
 use nsh_core::{
-    AccessibilityRole, LayoutAnimation, LayoutCurve, LayoutTransition, keymap::When,
-    ui::AnimatedValue, ui::StyleRefinement, ui::prelude::*,
+    AccessibilityRole, LayoutAnimation, LayoutCurve, LayoutTransition, element::AnimatedValue,
+    element::StyleRefinement, keymap::When, prelude::*,
 };
 use std::time::Duration;
 const MONO: &str = if cfg!(target_os = "macos") {
@@ -58,6 +60,18 @@ fn colored_control(
         }
     })
 }
+fn hint(label: impl IntoReactive<SharedString>) -> impl IntoTooltip {
+    tooltip().child(
+        view()
+            .px(px(8.))
+            .py(px(5.))
+            .rounded(px(5.))
+            .bg(rgb(RAISED))
+            .border_1()
+            .border_color(rgb(LINE))
+            .child(caption(label, 11., INK)),
+    )
+}
 /// A control's look without its action: menus press their own triggers.
 fn chip(
     label: impl IntoReactive<SharedString>,
@@ -76,7 +90,7 @@ fn chip(
         .label(move || label.get())
         .disabled(move || disabled.get())
         .window_drag(false)
-        .when(glyph.is_some(), |v| v.tooltip(label.get_untracked()))
+        .when(glyph.is_some(), |v| v.tooltip(hint(label.get_untracked())))
         .map(|v| {
             if glyph.is_some() {
                 // Title bar icons are ghost buttons: no fill or border until
@@ -266,7 +280,10 @@ fn run_script(s: State, script: String) {
 /// Disktree's Rust entry point, shared by `nsh dev`, `nsh run`, and Cargo.
 #[component]
 pub fn App() -> impl IntoElement {
-    nsh_core::ui::desktop::set_title_bar(nsh_core::desktop::TitleBarStyle::Hidden, Some(px(56.)));
+    nsh_core::element::desktop::set_title_bar(
+        nsh_core::desktop::TitleBarStyle::Hidden,
+        Some(px(56.)),
+    );
     let s = State::new();
     let camera = Camera {
         scale: animated_value(1.),
@@ -376,7 +393,7 @@ pub fn App() -> impl IntoElement {
 fn legend() -> impl IntoElement {
     scroll()
         .horizontal()
-        .shows_indicator(false)
+        .scrollbar(false)
         .h(px(20.))
         .flex_shrink(0.)
         .child(
@@ -430,10 +447,10 @@ fn toolbar(s: State) -> impl IntoElement {
         .test_id("titlebar")
         .h(px(56.))
         .gap(px(10.))
-        .pl(move || px((nsh_core::ui::desktop::title_bar().left.0 + 8.).max(16.)))
+        .pl(move || px((nsh_core::element::desktop::title_bar().left.0 + 8.).max(16.)))
         // Native controls can occupy either edge (Linux decoration layouts,
         // Windows caption buttons, or macOS traffic lights).
-        .pr(move || px((nsh_core::ui::desktop::title_bar().right.0 + 8.).max(16.)))
+        .pr(move || px((nsh_core::element::desktop::title_bar().right.0 + 8.).max(16.)))
         .border_b_1()
         .border_color(rgb(LINE))
         .bg(rgb(0x111113))
@@ -1016,7 +1033,7 @@ fn page_header(
                     .hover(|s| s.bg(rgb(0x1d1d21)))
                     .role(AccessibilityRole::Button)
                     .label(label)
-                    .tooltip(label)
+                    .tooltip(hint(label))
                     .disabled(move || disabled.get())
                     .opacity(move || if disabled.get() { 0.45_f32 } else { 1.0_f32 })
                     .on_press(move |_: &()| back())

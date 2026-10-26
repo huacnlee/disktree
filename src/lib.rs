@@ -3,7 +3,7 @@ mod model;
 mod scanner;
 mod state;
 mod ui;
-use nsh_core::ui::prelude::*;
+use nsh_core::prelude::*;
 pub use ui::App;
 
 #[native_module("disktree/native")]
