@@ -161,13 +161,46 @@ pub(crate) fn category(path: &str) -> (&'static str, u32) {
     CATEGORIES[index]
 }
 
+const MB: u64 = 1 << 20;
+const GB: u64 = 1 << 30;
+/// The size scale, cool to hot, one stop per decade from 1 MB, red from
+/// 10 GB up; sizes between stops blend, so every decade has its own shade.
+pub(crate) const SIZE_STOPS: [(&str, u64, u32); 6] = [
+    ("1 MB", MB, 0x3b4252),
+    ("10 MB", 10 * MB, 0x4c5fb8),
+    ("100 MB", 100 * MB, 0x2fb59a),
+    ("1 GB", GB, 0x9cc13f),
+    ("4 GB", 4 * GB, 0xe8a23a),
+    ("10 GB+", 10 * GB, 0xe5484d),
+];
+
+pub(crate) fn size_color(bytes: u64) -> u32 {
+    let at = (bytes.max(1) as f64).log10();
+    let stop = |i: usize| (SIZE_STOPS[i].1 as f64).log10();
+    let last = SIZE_STOPS.len() - 1;
+    if at <= stop(0) {
+        return SIZE_STOPS[0].2;
+    }
+    let Some(i) = (1..=last).find(|&i| at < stop(i)) else {
+        return SIZE_STOPS[last].2;
+    };
+    let t = (at - stop(i - 1)) / (stop(i) - stop(i - 1));
+    let (from, to) = (SIZE_STOPS[i - 1].2, SIZE_STOPS[i].2);
+    [16, 8, 0].into_iter().fold(0, |color, bit| {
+        let a = ((from >> bit) & 255) as f64;
+        let b = ((to >> bit) & 255) as f64;
+        color | (((a + (b - a) * t).round() as u32) << bit)
+    })
+}
+
 pub(crate) fn tile_color(node: &Node, depth: u8) -> u32 {
-    let base = category(&node.path).1;
+    let base = size_color(node.size);
     let hash = node
         .name
         .encode_utf16()
         .fold(0_i32, |h, c| h.wrapping_mul(31).wrapping_add(c as i32));
-    let shift = (hash.unsigned_abs() % 19) as i32 - 9 + (depth as i32 - 1) * 5;
+    // A slight per-name jitter keeps same-band siblings apart.
+    let shift = (hash.unsigned_abs() % 13) as i32 - 6 + (depth as i32 - 1) * 5;
     [16, 8, 0].into_iter().fold(0, |color, bit| {
         color | (((((base >> bit) & 255) as i32 + shift).clamp(0, 255) as u32) << bit)
     })
@@ -296,6 +329,16 @@ pub(crate) fn mosaic(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn size_bands_warm_with_weight() {
+        assert_eq!(size_color(0), SIZE_STOPS[0].2);
+        assert_eq!(size_color(GB), SIZE_STOPS[3].2);
+        assert_eq!(size_color(10 * GB), SIZE_STOPS[5].2);
+        assert_eq!(size_color(u64::MAX), SIZE_STOPS[5].2);
+        // Between two stops the color blends, so neighbors differ.
+        assert_ne!(size_color(2 * GB), size_color(5 * GB));
+    }
+
     #[test]
     fn specific_categories_precede_broad_ancestors() {
         for (path, expected) in [

@@ -7,8 +7,12 @@ use nsh_base::{
     MenuEvent, context_menu, input, menu, menu_item, menu_separator, nav_page, nav_stack, tooltip,
 };
 use nsh_core::{
-    AccessibilityRole, LayoutAnimation, LayoutCurve, LayoutTransition, element::AnimatedValue,
-    element::StyleRefinement, keymap::When, prelude::*,
+    AccessibilityRole, LayoutAnimation, LayoutCurve, LayoutTransition,
+    canvas::{LineCap, LineJoin},
+    element::AnimatedValue,
+    element::StyleRefinement,
+    keymap::When,
+    prelude::*,
 };
 use std::time::Duration;
 const MONO: &str = if cfg!(target_os = "macos") {
@@ -24,6 +28,7 @@ const INK: u32 = 0xededf0;
 const MUTED: u32 = 0x85858f;
 const GREEN: u32 = 0x65f193;
 const RED: u32 = 0xff8078;
+const MENU_HOVER: u32 = 0x35373b;
 fn caption(value: impl IntoReactive<SharedString>, size: f32, color: u32) -> Text {
     text(value)
         .font_family(MONO)
@@ -123,47 +128,32 @@ fn chip(
         )
 }
 fn icon(glyph: &str) -> impl IntoElement {
-    let p = Painter::new()
-        .stroke_color(rgb(if glyph == "⟳" { GREEN } else { INK }))
-        .line_width(1.6)
-        .begin_path();
-    let p = match glyph {
-        "⟳" => p
-            .arc(8., 8., 5.5, 0.1, std::f32::consts::PI * 1.7)
-            .move_to(11., 1.)
-            .line_to(12., 4.5)
-            .line_to(8.5, 4.5),
-        "↑" => p
-            .move_to(8., 14.)
-            .line_to(8., 2.)
-            .move_to(3., 7.)
-            .line_to(8., 2.)
-            .line_to(13., 7.),
-        "‹" => p.move_to(10., 3.).line_to(5., 8.).line_to(10., 13.),
-        "☷" => {
-            let mut p = p;
-            for (y, x) in [(4., 6.), (8., 10.), (12., 5.)] {
-                p = p
-                    .move_to(2., y)
-                    .line_to(x - 1.5, y)
-                    .move_to(x + 1.5, y)
-                    .line_to(14., y)
-                    .rect(bounds(
-                        point(px(x - 1.5), px(y - 1.5)),
-                        size(px(3.), px(3.)),
-                    ));
-            }
-            p
+    // Tabler-style outlines on a 24-unit grid, drawn at 16px.
+    let path = match glyph {
+        "⟳" => "M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4",
+        "↑" => {
+            "M12 19H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v3.5M19 22v-6M22 19l-3-3-3 3"
         }
-        _ => p
-            .move_to(3., 10.)
-            .line_to(10., 3.)
-            .line_to(13., 6.)
-            .line_to(6., 13.)
-            .line_to(2., 14.)
-            .close_path(),
+        "‹" => "M15 6l-6 6 6 6",
+        "/" => {
+            "M6 4h12a3 3 0 0 1 3 3v2a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3zM6 12h12a3 3 0 0 1 3 3v2a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-2a3 3 0 0 1 3-3zM7 8v.01M7 16v.01"
+        }
+        "☷" => {
+            "M14 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 6h10M18 6h2M4 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 12h12M11 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 18h7M15 18h5"
+        }
+        _ => "M4 20h4L18.5 9.5a2.828 2.828 0 1 0-4-4L4 16v4M13.5 6.5l4 4",
     };
-    canvas(p.stroke()).w(px(16.)).h(px(16.))
+    canvas(
+        Painter::new()
+            .scale(16. / 24., 16. / 24.)
+            .stroke_color(rgb(if glyph == "⟳" { GREEN } else { 0xc4c4cc }))
+            .line_width(1.75)
+            .line_cap(LineCap::Round)
+            .line_join(LineJoin::Round)
+            .stroke_svg(path),
+    )
+    .w(px(16.))
+    .h(px(16.))
 }
 fn row() -> View {
     view().flex_row().items_center().gap(px(8.))
@@ -204,13 +194,14 @@ fn app_mark() -> impl IntoElement {
 }
 /// The popup every menu shares: a raised panel over a hairline.
 fn popup(s: StyleRefinement) -> StyleRefinement {
-    s.min_w(px(220.))
-        .p(px(5.))
-        .gap(px(1.))
-        .rounded(px(8.))
+    // The nsh gallery's popup surface: 10-point corners, one edge, 4 points
+    // around its rows.
+    s.min_w(px(200.))
+        .p(px(4.))
+        .rounded(px(10.))
         .border_1()
-        .border_color(rgb(0x34343a))
-        .bg(rgb(0x161619))
+        .border_color(rgb(0x36383c))
+        .bg(rgb(0x25262a))
 }
 fn entry(
     label: impl IntoReactive<SharedString>,
@@ -225,22 +216,73 @@ fn entry(
         .accessibility_label(move || Some(label.get()))
         .disabled(move || disabled.get())
         .on_select(move |_: &()| action())
-        .px(px(10.))
-        .py(px(7.))
-        .rounded(px(5.))
-        .hover(|s| s.bg(rgb(0x24242a)))
-        .disabled_style(|s| s.opacity(0.4))
-        .child(
-            caption(move || label.get(), 11., color)
-                .font_weight(FontWeight::MEDIUM)
-                .number_of_lines(1),
-        )
+        .flex_row()
+        .items_center()
+        .h(px(26.))
+        .px(px(8.))
+        .rounded(px(6.))
+        .hover(|s| s.bg(rgb(MENU_HOVER)))
+        .active(|s| s.bg(rgb(0x3d3f44)))
+        .disabled_style(|s| s.opacity(0.35))
+        .child(caption(move || label.get(), 12., color).number_of_lines(1))
 }
-fn check(on: bool, label: impl std::fmt::Display) -> String {
-    format!("{} {label}", if on { "✓" } else { " " })
+/// A menu row whose state shows as a check mark at its trailing edge.
+fn check_entry(
+    label: impl Into<SharedString>,
+    on: impl Fn() -> bool + Copy + 'static,
+    action: impl Fn() + 'static,
+) -> impl IntoElement {
+    let label: SharedString = label.into();
+    menu_item()
+        .accessibility_label({
+            let label = label.clone();
+            move || {
+                Some(if on() {
+                    format!("{label}, checked").into()
+                } else {
+                    label.clone()
+                })
+            }
+        })
+        .on_select(move |_: &()| action())
+        .flex_row()
+        .items_center()
+        .gap(px(8.))
+        .h(px(26.))
+        .px(px(8.))
+        .rounded(px(6.))
+        .hover(|s| s.bg(rgb(MENU_HOVER)))
+        .active(|s| s.bg(rgb(0x3d3f44)))
+        .child(caption(label, 12., INK).number_of_lines(1).flex_1())
+        .child(view().w(px(16.)).items_center().child(when(on, || {
+            canvas(
+                Painter::new()
+                    .scale(14. / 24., 14. / 24.)
+                    .stroke_color(rgb(GREEN))
+                    .line_width(2.25)
+                    .line_cap(LineCap::Round)
+                    .line_join(LineJoin::Round)
+                    .stroke_svg("M5 12l5 5L20 7"),
+            )
+            .w(px(14.))
+            .h(px(14.))
+        })))
+}
+/// A quiet label above a group of menu rows.
+fn menu_heading(label: &'static str) -> impl IntoElement {
+    view()
+        .px(px(8.))
+        .pt(px(6.))
+        .pb(px(2.))
+        .child(caption(label, 11., 0x6b6f76).font_weight(FontWeight::SEMIBOLD))
 }
 fn rule() -> impl IntoElement {
-    menu_separator().h(px(1.)).my(px(4.)).bg(rgb(LINE))
+    menu_separator()
+        .h(px(1.))
+        .mt(px(4.))
+        .mb(px(5.))
+        .mx(px(4.))
+        .bg(rgb(0x36383c))
 }
 #[derive(Clone, Copy)]
 struct Camera {
@@ -399,7 +441,7 @@ fn legend() -> impl IntoElement {
         .child(
             row()
                 .gap(px(13.))
-                .children(CATEGORIES.into_iter().map(|(name, color)| {
+                .children(SIZE_STOPS.into_iter().map(|(name, _, color)| {
                     row()
                         .gap(px(4.))
                         .child(view().w(px(8.)).h(px(8.)).rounded(px(1.)).bg(rgb(color)))
@@ -414,10 +456,9 @@ fn view_menu(s: State) -> impl IntoElement {
         .offset(px(6.))
         .popup_style(popup)
         .trigger(chip("View options", Some("☷"), false, INK))
-        .child(entry(
-            move || check(s.hidden.get(), "Show hidden files"),
-            false,
-            INK,
+        .child(check_entry(
+            "Show hidden files",
+            move || s.hidden.get(),
             move || {
                 batch(|| {
                     s.hidden.update(|v| *v = !*v);
@@ -426,11 +467,11 @@ fn view_menu(s: State) -> impl IntoElement {
             },
         ))
         .child(rule())
+        .child(menu_heading("Depth"))
         .children([1, 2, 3].into_iter().map(move |depth| {
-            entry(
-                move || check(s.levels.get() == depth, format!("{depth} levels deep")),
-                false,
-                INK,
+            check_entry(
+                format!("{depth} level{}", if depth == 1 { "" } else { "s" }),
+                move || s.levels.get() == depth,
                 move || s.levels.set(depth),
             )
         }))
@@ -487,48 +528,52 @@ fn toolbar(s: State) -> impl IntoElement {
             move || s.locked() || s.path.get() == "/",
             move || s.up(),
         ))
+        .child(view().w(px(1.)).h(px(20.)).mx(px(4.)).bg(rgb(LINE)))
         .child(
-            row().gap(px(2.)).children(
-                [Metric::Size, Metric::Apparent, Metric::Files]
-                    .into_iter()
-                    .map(move |metric| {
-                        view()
-                            .role(AccessibilityRole::Tab)
-                            .label(metric.label())
-                            .accessibility_state(move || nsh_core::AccessibilityState {
-                                selected: s.metric.get() == metric,
-                                ..Default::default()
-                            })
-                            .window_drag(false)
-                            .on_press(move |_: &()| {
-                                batch(|| {
-                                    s.metric.set(metric);
-                                    s.page.set(0);
+            row()
+                .gap(px(2.))
+                .p(px(3.))
+                .rounded(px(8.))
+                .bg(rgb(0x0b0b0d))
+                .border_1()
+                .border_color(rgb(LINE))
+                .children(
+                    [Metric::Size, Metric::Apparent, Metric::Files]
+                        .into_iter()
+                        .map(move |metric| {
+                            view()
+                                .role(AccessibilityRole::Tab)
+                                .label(metric.label())
+                                .accessibility_state(move || nsh_core::AccessibilityState {
+                                    selected: s.metric.get() == metric,
+                                    ..Default::default()
                                 })
-                            })
-                            .h(px(32.))
-                            .px(px(10.))
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(6.))
-                            .bg(move || {
-                                rgba(if s.metric.get() == metric {
-                                    0x1f1f24ff
-                                } else {
-                                    0
+                                .window_drag(false)
+                                .on_press(move |_: &()| {
+                                    batch(|| {
+                                        s.metric.set(metric);
+                                        s.page.set(0);
+                                    })
                                 })
-                            })
-                            .hover(|s| s.bg(rgb(0x1f1f24)))
-                            .active(|s| s.bg(rgb(0x2a2a30)))
-                            .child(caption(metric.label(), 11., INK).text_color(move || {
-                                rgb(if s.metric.get() == metric {
-                                    GREEN
-                                } else {
-                                    MUTED
+                                .h(px(26.))
+                                .px(px(12.))
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(5.))
+                                .bg(move || {
+                                    rgba(if s.metric.get() == metric {
+                                        0x24242aff
+                                    } else {
+                                        0
+                                    })
                                 })
-                            }))
-                    }),
-            ),
+                                .hover(|s| s.bg(rgb(0x1a1a1f)))
+                                .active(|s| s.bg(rgb(0x2a2a30)))
+                                .child(caption(metric.label(), 11., INK).text_color(move || {
+                                    rgb(if s.metric.get() == metric { INK } else { MUTED })
+                                }))
+                        }),
+                ),
         )
         .child(view_menu(s))
 }
@@ -589,8 +634,14 @@ fn path_bar(s: State, filter: ElementRef) -> impl IntoElement {
                             .gap(px(3.))
                             .overflow_hidden()
                             .child(
-                                button("/", move || s.locked(), move || s.navigate("/".into()))
-                                    .p(px(4.)),
+                                control(
+                                    "Go to /",
+                                    Some("/"),
+                                    move || s.locked(),
+                                    move || s.navigate("/".into()),
+                                )
+                                .w(px(26.))
+                                .h(px(26.)),
                             )
                             .child(when(
                                 move || !crumbs.get().0.is_empty(),
@@ -835,29 +886,123 @@ fn treemap(s: State, camera: Camera, filter: ElementRef) -> impl IntoElement {
                     .items_center()
                     .justify_center()
                     .gap(px(14.))
-                    .child(caption(
-                        move || {
-                            if s.busy.get() {
-                                "Mapping your space"
-                            } else {
-                                "See the shape of your storage."
-                            }
-                        },
-                        24.,
-                        INK,
+                    .child(when(
+                        move || s.progress.get().is_some(),
+                        move || scan_progress(s),
                     ))
-                    .child(caption(
+                    .child(when(
+                        move || s.progress.get().is_none(),
                         move || {
-                            if s.busy.get() {
-                                "Reading folders and measuring their footprint…"
-                            } else {
-                                "Scan a folder. Find the weight. Make room."
-                            }
+                            view()
+                                .items_center()
+                                .gap(px(14.))
+                                .child(caption(
+                                    move || {
+                                        if s.busy.get() {
+                                            "Mapping your space"
+                                        } else {
+                                            "See the shape of your storage."
+                                        }
+                                    },
+                                    24.,
+                                    INK,
+                                ))
+                                .child(caption(
+                                    move || {
+                                        if s.busy.get() {
+                                            "Reading folders and measuring their footprint…"
+                                        } else {
+                                            "Scan a folder. Find the weight. Make room."
+                                        }
+                                    },
+                                    12.,
+                                    MUTED,
+                                ))
                         },
-                        12.,
-                        MUTED,
                     ))
             },
+        ))
+}
+/// A number whose digits roll upward as it changes, odometer style.
+fn rolling(value: impl Fn() -> String + 'static, size: f32, color: u32) -> impl IntoElement {
+    let cells = computed(move || {
+        let chars: Vec<char> = value().chars().collect();
+        let len = chars.len();
+        // Keyed from the right, so a digit keeps its place as the number grows.
+        chars
+            .into_iter()
+            .enumerate()
+            .map(|(i, c)| (len - i, c))
+            .collect::<Vec<_>>()
+    });
+    row().gap(px(0.)).children([each(
+        move || cells.get(),
+        |cell| (cell.0, cell.1.is_ascii_digit()),
+        move |cell, _| {
+            let first = cell.get_untracked().1;
+            if !first.is_ascii_digit() {
+                return caption(move || cell.get().1.to_string(), size, color).into_element();
+            }
+            let line = (size * 1.25).round();
+            let digit = |c: char| c.to_digit(10).unwrap_or(0) as f32;
+            // Two strips of 0–9: every change rolls upward, through the second
+            // strip if it wraps, then jumps back unseen.
+            let at = std::cell::Cell::new(digit(first));
+            let offset = animated_value(-digit(first) * line);
+            effect(move || {
+                let next = digit(cell.get().1);
+                let mut from = at.get();
+                if from >= 10. {
+                    from -= 10.;
+                    offset.set(-from * line);
+                }
+                let to = from + (next - from).rem_euclid(10.);
+                at.set(to);
+                if to != from {
+                    offset.timing(-to * line, 280., Easing::EaseOut);
+                }
+            });
+            view()
+                .h(px(line))
+                .overflow_hidden()
+                .child(
+                    view()
+                        .bind_translate_y(&offset)
+                        .children((0..20).map(move |n| {
+                            view().h(px(line)).justify_center().child(caption(
+                                (n % 10).to_string(),
+                                size,
+                                color,
+                            ))
+                        })),
+                )
+                .into_element()
+        },
+    )])
+}
+/// The empty map while a scan runs: what has been found so far, large.
+fn scan_progress(s: State) -> impl IntoElement {
+    let p = move || s.progress.get().unwrap_or_default();
+    view()
+        .w(px(360.))
+        .gap(px(14.))
+        .child(caption("MAPPING YOUR SPACE", 10., MUTED).font_weight(FontWeight::SEMIBOLD))
+        .child(rolling(move || format_size(p().bytes as f64), 44., INK))
+        .child(meter(move || p().percent as f32 / 100., 4., GREEN))
+        .child(
+            row()
+                .justify_between()
+                .child(stat("FOLDERS", move || count(p().directories)))
+                .child(stat("FILES", move || count(p().files)))
+                .child(stat("ELAPSED", move || format!("{}s", s.seconds.get()))),
+        )
+        .child(caption(
+            move || match p().errors {
+                0 => String::new(),
+                n => format!("{} unreadable, skipped", count(n)),
+            },
+            11.,
+            MUTED,
         ))
 }
 fn map_tile(s: State, tile: ReadSignal<Tile>) -> impl IntoElement {
@@ -1394,7 +1539,7 @@ fn details_page(s: State) -> impl IntoElement {
                         view()
                             .w(px(3.))
                             .h(px(19.))
-                            .bg(move || rgb(category(&s.selection.get().path).1)),
+                            .bg(move || rgb(size_color(s.selection.get().size))),
                     )
                     .child(
                         caption(move || s.selection.get().name, 20., INK)
@@ -1505,7 +1650,7 @@ fn directory_row(s: State, node: ReadSignal<Node>) -> impl IntoElement {
                     view()
                         .w(px(3.))
                         .h(px(13.))
-                        .bg(move || rgb(category(&node.get().path).1)),
+                        .bg(move || rgb(size_color(node.get().size))),
                 )
                 .child(
                     caption(
@@ -1857,7 +2002,11 @@ fn statusbar(s: State) -> impl IntoElement {
                     .flex_1()
                     .gap(px(16.))
                     .child(caption(
-                        "Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   Right-click Menu   ⌥↑ Parent   ⌘R Rescan   Esc Back",
+                        if cfg!(target_os = "macos") {
+                            "Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   Right-click Menu   ⌥↑ Parent   ⌘R Rescan   Esc Back"
+                        } else {
+                            "Ctrl+= / Ctrl+- Zoom   Ctrl+0 Fit   Click selected Enter   Space Mark   Right-click Menu   Alt+↑ Parent   Ctrl+R Rescan   Esc Back"
+                        },
                         10.,
                         MUTED,
                     ))

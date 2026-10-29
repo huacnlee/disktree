@@ -778,10 +778,30 @@ fn long_path_index_memory_budget() {
 
 #[test]
 fn scan_estimate_stays_monotonic_and_reserves_completion() {
-    assert_eq!(scan_percent(0, 0, 1), 0);
-    assert_eq!(scan_percent(0, 1, 3), 25);
-    assert_eq!(scan_percent(25, 1, 20), 25);
-    assert_eq!(scan_percent(25, 4, 0), 99);
+    assert_eq!(scan_percent(0, 0, 1.), 0);
+    assert_eq!(scan_percent(0, 1, 3.), 25);
+    assert_eq!(scan_percent(25, 1, 20.), 25);
+    assert_eq!(scan_percent(25, 4, 0.), 99);
+}
+
+#[test]
+fn waiting_siblings_count_as_whole_subtrees() {
+    let root = Path::new("/r");
+    let mut queue = DirectoryQueue::new(root).unwrap();
+    queue.pop().unwrap();
+    for (id, name) in (1..).zip(["a", "b", "c", "d"]) {
+        queue.push(id, &root.join(name)).unwrap();
+    }
+    // Open `d` and find 9 folders under it; a, b and c are still unopened.
+    queue.pop().unwrap();
+    for i in 0..9 {
+        queue
+            .push(5 + i, &root.join("d").join(i.to_string()))
+            .unwrap();
+    }
+    queue.active = 0;
+    // Each unopened sibling is sized like `d`: itself plus 9 below.
+    assert_eq!(queue.remaining(), 9. + 3. * 10.);
 }
 
 #[test]

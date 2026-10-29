@@ -335,6 +335,10 @@ struct DirectoryQueue {
     active: u64,
     completed: u64,
     cancelled: bool,
+    root_depth: usize,
+    // Directories queued and still waiting, by depth below the root.
+    queued: Vec<u64>,
+    waiting: Vec<u64>,
 }
 impl DirectoryQueue {
     fn new(root: &Path) -> Result<Self> {
@@ -347,6 +351,9 @@ impl DirectoryQueue {
             active: 0,
             completed: 0,
             cancelled: false,
+            root_depth: root.components().count(),
+            queued: vec![],
+            waiting: vec![],
         };
         queue.push(0, root)?;
         Ok(queue)
@@ -361,6 +368,13 @@ impl DirectoryQueue {
             ])
             .map_err(io)?;
         self.pending += 1;
+        let depth = self.depth(path);
+        if self.queued.len() <= depth {
+            self.queued.resize(depth + 1, 0);
+            self.waiting.resize(depth + 1, 0);
+        }
+        self.queued[depth] += 1;
+        self.waiting[depth] += 1;
         Ok(())
     }
     fn pop(&mut self) -> Result<Option<(NodeId, PathBuf)>> {
@@ -380,20 +394,42 @@ impl DirectoryQueue {
                 .map_err(io)?;
             self.pending -= 1;
             self.active += 1;
-            Ok(Some((id, PathBuf::from(path))))
+            let path = PathBuf::from(path);
+            let depth = self.depth(&path);
+            self.waiting[depth] -= 1;
+            Ok(Some((id, path)))
         } else {
             Ok(None)
         }
     }
+    fn depth(&self, path: &Path) -> usize {
+        path.components().count().saturating_sub(self.root_depth)
+    }
+    /// Directories still to read. The queue is depth-first, so what waits
+    /// is mostly unopened siblings near the root; each stands for its whole
+    /// subtree, sized like the subtrees already opened at its depth.
+    fn remaining(&self) -> f64 {
+        let mut deeper = 0u64;
+        let mut remaining = self.active as f64;
+        for depth in (0..self.queued.len()).rev() {
+            let waiting = self.waiting[depth];
+            let opened = self.queued[depth] - waiting;
+            if waiting > 0 {
+                remaining += waiting as f64 * (1. + deeper as f64 / opened.max(1) as f64);
+            }
+            deeper += self.queued[depth];
+        }
+        remaining
+    }
 }
 // Directory discovery changes the denominator; keep the estimate monotonic and
 // reserve 100% for the fully reduced and assembled tree.
-fn scan_percent(previous: u8, completed: u64, pending: u64) -> u8 {
-    let total = completed.saturating_add(pending);
-    let estimate = if total == 0 {
+fn scan_percent(previous: u8, completed: u64, remaining: f64) -> u8 {
+    let total = completed as f64 + remaining;
+    let estimate = if total <= 0. {
         0
     } else {
-        (completed as f64 / total as f64 * 100.) as u8
+        (completed as f64 / total * 100.) as u8
     };
     previous.max(estimate.min(99))
 }
@@ -503,11 +539,7 @@ fn read_directories(path: &Path, workers: usize, bulk: bool, walker: &mut Walker
                     }
                 }
                 let state = queue.0.lock().map_err(io)?;
-                walker.percent = scan_percent(
-                    walker.percent,
-                    state.completed,
-                    state.pending + state.active,
-                );
+                walker.percent = scan_percent(walker.percent, state.completed, state.remaining());
             }
             Ok(())
         })();
