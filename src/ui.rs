@@ -872,29 +872,66 @@ fn treemap(s: State, camera: Camera, filter: ElementRef) -> impl IntoElement {
                     .items_center()
                     .justify_center()
                     .gap(px(14.))
-                    .child(caption(
-                        move || {
-                            if s.busy.get() {
-                                "Mapping your space"
-                            } else {
-                                "See the shape of your storage."
-                            }
-                        },
-                        24.,
-                        INK,
+                    .child(when(
+                        move || s.progress.get().is_some(),
+                        move || scan_progress(s),
                     ))
-                    .child(caption(
+                    .child(when(
+                        move || s.progress.get().is_none(),
                         move || {
-                            if s.busy.get() {
-                                "Reading folders and measuring their footprint…"
-                            } else {
-                                "Scan a folder. Find the weight. Make room."
-                            }
+                            view()
+                                .items_center()
+                                .gap(px(14.))
+                                .child(caption(
+                                    move || {
+                                        if s.busy.get() {
+                                            "Mapping your space"
+                                        } else {
+                                            "See the shape of your storage."
+                                        }
+                                    },
+                                    24.,
+                                    INK,
+                                ))
+                                .child(caption(
+                                    move || {
+                                        if s.busy.get() {
+                                            "Reading folders and measuring their footprint…"
+                                        } else {
+                                            "Scan a folder. Find the weight. Make room."
+                                        }
+                                    },
+                                    12.,
+                                    MUTED,
+                                ))
                         },
-                        12.,
-                        MUTED,
                     ))
             },
+        ))
+}
+/// The empty map while a scan runs: what has been found so far, large.
+fn scan_progress(s: State) -> impl IntoElement {
+    let p = move || s.progress.get().unwrap_or_default();
+    view()
+        .w(px(360.))
+        .gap(px(14.))
+        .child(caption("MAPPING YOUR SPACE", 10., MUTED).font_weight(FontWeight::SEMIBOLD))
+        .child(caption(move || format_size(p().bytes as f64), 44., INK))
+        .child(meter(move || p().percent as f32 / 100., 4., GREEN))
+        .child(
+            row()
+                .justify_between()
+                .child(stat("FOLDERS", move || count(p().directories)))
+                .child(stat("FILES", move || count(p().files)))
+                .child(stat("ELAPSED", move || format!("{}s", s.seconds.get()))),
+        )
+        .child(caption(
+            move || match p().errors {
+                0 => String::new(),
+                n => format!("{} unreadable, skipped", count(n)),
+            },
+            11.,
+            MUTED,
         ))
 }
 fn map_tile(s: State, tile: ReadSignal<Tile>) -> impl IntoElement {
