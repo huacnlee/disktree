@@ -9,6 +9,7 @@ use nsh_base::{
 use nsh_core::{
     AccessibilityRole, LayoutAnimation, LayoutCurve, LayoutTransition, element::AnimatedValue,
     element::StyleRefinement, keymap::When, prelude::*,
+    canvas::{LineCap, LineJoin},
 };
 use std::time::Duration;
 const MONO: &str = if cfg!(target_os = "macos") {
@@ -24,6 +25,7 @@ const INK: u32 = 0xededf0;
 const MUTED: u32 = 0x85858f;
 const GREEN: u32 = 0x65f193;
 const RED: u32 = 0xff8078;
+const MENU_HOVER: u32 = 0x35373b;
 fn caption(value: impl IntoReactive<SharedString>, size: f32, color: u32) -> Text {
     text(value)
         .font_family(MONO)
@@ -123,47 +125,26 @@ fn chip(
         )
 }
 fn icon(glyph: &str) -> impl IntoElement {
-    let p = Painter::new()
-        .stroke_color(rgb(if glyph == "⟳" { GREEN } else { INK }))
-        .line_width(1.6)
-        .begin_path();
-    let p = match glyph {
-        "⟳" => p
-            .arc(8., 8., 5.5, 0.1, std::f32::consts::PI * 1.7)
-            .move_to(11., 1.)
-            .line_to(12., 4.5)
-            .line_to(8.5, 4.5),
-        "↑" => p
-            .move_to(8., 14.)
-            .line_to(8., 2.)
-            .move_to(3., 7.)
-            .line_to(8., 2.)
-            .line_to(13., 7.),
-        "‹" => p.move_to(10., 3.).line_to(5., 8.).line_to(10., 13.),
-        "☷" => {
-            let mut p = p;
-            for (y, x) in [(4., 6.), (8., 10.), (12., 5.)] {
-                p = p
-                    .move_to(2., y)
-                    .line_to(x - 1.5, y)
-                    .move_to(x + 1.5, y)
-                    .line_to(14., y)
-                    .rect(bounds(
-                        point(px(x - 1.5), px(y - 1.5)),
-                        size(px(3.), px(3.)),
-                    ));
-            }
-            p
-        }
-        _ => p
-            .move_to(3., 10.)
-            .line_to(10., 3.)
-            .line_to(13., 6.)
-            .line_to(6., 13.)
-            .line_to(2., 14.)
-            .close_path(),
+    // Tabler-style outlines on a 24-unit grid, drawn at 16px.
+    let path = match glyph {
+        "⟳" => "M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4",
+        "↑" => "M12 19H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v3.5M19 22v-6M22 19l-3-3-3 3",
+        "‹" => "M15 6l-6 6 6 6",
+        "/" => "M6 4h12a3 3 0 0 1 3 3v2a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3zM6 12h12a3 3 0 0 1 3 3v2a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-2a3 3 0 0 1 3-3zM7 8v.01M7 16v.01",
+        "☷" => "M14 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 6h10M18 6h2M4 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 12h12M11 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 18h7M15 18h5",
+        _ => "M4 20h4L18.5 9.5a2.828 2.828 0 1 0-4-4L4 16v4M13.5 6.5l4 4",
     };
-    canvas(p.stroke()).w(px(16.)).h(px(16.))
+    canvas(
+        Painter::new()
+            .scale(16. / 24., 16. / 24.)
+            .stroke_color(rgb(if glyph == "⟳" { GREEN } else { 0xc4c4cc }))
+            .line_width(1.75)
+            .line_cap(LineCap::Round)
+            .line_join(LineJoin::Round)
+            .stroke_svg(path),
+    )
+    .w(px(16.))
+    .h(px(16.))
 }
 fn row() -> View {
     view().flex_row().items_center().gap(px(8.))
@@ -204,13 +185,14 @@ fn app_mark() -> impl IntoElement {
 }
 /// The popup every menu shares: a raised panel over a hairline.
 fn popup(s: StyleRefinement) -> StyleRefinement {
-    s.min_w(px(220.))
-        .p(px(5.))
-        .gap(px(1.))
-        .rounded(px(8.))
+    // The nsh gallery's popup surface: 10-point corners, one edge, 4 points
+    // around its rows.
+    s.min_w(px(200.))
+        .p(px(4.))
+        .rounded(px(10.))
         .border_1()
-        .border_color(rgb(0x34343a))
-        .bg(rgb(0x161619))
+        .border_color(rgb(0x36383c))
+        .bg(rgb(0x25262a))
 }
 fn entry(
     label: impl IntoReactive<SharedString>,
@@ -225,22 +207,67 @@ fn entry(
         .accessibility_label(move || Some(label.get()))
         .disabled(move || disabled.get())
         .on_select(move |_: &()| action())
-        .px(px(10.))
-        .py(px(7.))
-        .rounded(px(5.))
-        .hover(|s| s.bg(rgb(0x24242a)))
-        .disabled_style(|s| s.opacity(0.4))
-        .child(
-            caption(move || label.get(), 11., color)
-                .font_weight(FontWeight::MEDIUM)
-                .number_of_lines(1),
-        )
+        .flex_row()
+        .items_center()
+        .h(px(26.))
+        .px(px(8.))
+        .rounded(px(6.))
+        .hover(|s| s.bg(rgb(MENU_HOVER)))
+        .active(|s| s.bg(rgb(0x3d3f44)))
+        .disabled_style(|s| s.opacity(0.35))
+        .child(caption(move || label.get(), 12., color).number_of_lines(1))
 }
-fn check(on: bool, label: impl std::fmt::Display) -> String {
-    format!("{} {label}", if on { "✓" } else { " " })
+/// A menu row whose state shows as a check mark at its trailing edge.
+fn check_entry(
+    label: impl Into<SharedString>,
+    on: impl Fn() -> bool + Copy + 'static,
+    action: impl Fn() + 'static,
+) -> impl IntoElement {
+    let label: SharedString = label.into();
+    menu_item()
+        .accessibility_label({
+            let label = label.clone();
+            move || Some(if on() { format!("{label}, checked").into() } else { label.clone() })
+        })
+        .on_select(move |_: &()| action())
+        .flex_row()
+        .items_center()
+        .gap(px(8.))
+        .h(px(26.))
+        .px(px(8.))
+        .rounded(px(6.))
+        .hover(|s| s.bg(rgb(MENU_HOVER)))
+        .active(|s| s.bg(rgb(0x3d3f44)))
+        .child(caption(label, 12., INK).number_of_lines(1).flex_1())
+        .child(view().w(px(16.)).items_center().child(when(on, || {
+            canvas(
+                Painter::new()
+                    .scale(14. / 24., 14. / 24.)
+                    .stroke_color(rgb(GREEN))
+                    .line_width(2.25)
+                    .line_cap(LineCap::Round)
+                    .line_join(LineJoin::Round)
+                    .stroke_svg("M5 12l5 5L20 7"),
+            )
+            .w(px(14.))
+            .h(px(14.))
+        })))
+}
+/// A quiet label above a group of menu rows.
+fn menu_heading(label: &'static str) -> impl IntoElement {
+    view()
+        .px(px(8.))
+        .pt(px(6.))
+        .pb(px(2.))
+        .child(caption(label, 11., 0x6b6f76).font_weight(FontWeight::SEMIBOLD))
 }
 fn rule() -> impl IntoElement {
-    menu_separator().h(px(1.)).my(px(4.)).bg(rgb(LINE))
+    menu_separator()
+        .h(px(1.))
+        .mt(px(4.))
+        .mb(px(5.))
+        .mx(px(4.))
+        .bg(rgb(0x36383c))
 }
 #[derive(Clone, Copy)]
 struct Camera {
@@ -414,10 +441,9 @@ fn view_menu(s: State) -> impl IntoElement {
         .offset(px(6.))
         .popup_style(popup)
         .trigger(chip("View options", Some("☷"), false, INK))
-        .child(entry(
-            move || check(s.hidden.get(), "Show hidden files"),
-            false,
-            INK,
+        .child(check_entry(
+            "Show hidden files",
+            move || s.hidden.get(),
             move || {
                 batch(|| {
                     s.hidden.update(|v| *v = !*v);
@@ -426,11 +452,11 @@ fn view_menu(s: State) -> impl IntoElement {
             },
         ))
         .child(rule())
+        .child(menu_heading("Depth"))
         .children([1, 2, 3].into_iter().map(move |depth| {
-            entry(
-                move || check(s.levels.get() == depth, format!("{depth} levels deep")),
-                false,
-                INK,
+            check_entry(
+                format!("{depth} level{}", if depth == 1 { "" } else { "s" }),
+                move || s.levels.get() == depth,
                 move || s.levels.set(depth),
             )
         }))
@@ -487,8 +513,16 @@ fn toolbar(s: State) -> impl IntoElement {
             move || s.locked() || s.path.get() == "/",
             move || s.up(),
         ))
+        .child(view().w(px(1.)).h(px(20.)).mx(px(4.)).bg(rgb(LINE)))
         .child(
-            row().gap(px(2.)).children(
+            row()
+                .gap(px(2.))
+                .p(px(3.))
+                .rounded(px(8.))
+                .bg(rgb(0x0b0b0d))
+                .border_1()
+                .border_color(rgb(LINE))
+                .children(
                 [Metric::Size, Metric::Apparent, Metric::Files]
                     .into_iter()
                     .map(move |metric| {
@@ -506,23 +540,23 @@ fn toolbar(s: State) -> impl IntoElement {
                                     s.page.set(0);
                                 })
                             })
-                            .h(px(32.))
-                            .px(px(10.))
+                            .h(px(26.))
+                            .px(px(12.))
                             .items_center()
                             .justify_center()
-                            .rounded(px(6.))
+                            .rounded(px(5.))
                             .bg(move || {
                                 rgba(if s.metric.get() == metric {
-                                    0x1f1f24ff
+                                    0x24242aff
                                 } else {
                                     0
                                 })
                             })
-                            .hover(|s| s.bg(rgb(0x1f1f24)))
+                            .hover(|s| s.bg(rgb(0x1a1a1f)))
                             .active(|s| s.bg(rgb(0x2a2a30)))
                             .child(caption(metric.label(), 11., INK).text_color(move || {
                                 rgb(if s.metric.get() == metric {
-                                    GREEN
+                                    INK
                                 } else {
                                     MUTED
                                 })
@@ -589,8 +623,11 @@ fn path_bar(s: State, filter: ElementRef) -> impl IntoElement {
                             .gap(px(3.))
                             .overflow_hidden()
                             .child(
-                                button("/", move || s.locked(), move || s.navigate("/".into()))
-                                    .p(px(4.)),
+                                control("Go to /", Some("/"), move || s.locked(), move || {
+                                    s.navigate("/".into())
+                                })
+                                .w(px(26.))
+                                .h(px(26.)),
                             )
                             .child(when(
                                 move || !crumbs.get().0.is_empty(),
@@ -1857,7 +1894,11 @@ fn statusbar(s: State) -> impl IntoElement {
                     .flex_1()
                     .gap(px(16.))
                     .child(caption(
-                        "Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   Right-click Menu   ⌥↑ Parent   ⌘R Rescan   Esc Back",
+                        if cfg!(target_os = "macos") {
+                            "Pinch / ⌘± Zoom   ⌘0 Fit   Click selected Enter   Space Mark   Right-click Menu   ⌥↑ Parent   ⌘R Rescan   Esc Back"
+                        } else {
+                            "Ctrl+= / Ctrl+- Zoom   Ctrl+0 Fit   Click selected Enter   Space Mark   Right-click Menu   Alt+↑ Parent   Ctrl+R Rescan   Esc Back"
+                        },
                         10.,
                         MUTED,
                     ))
