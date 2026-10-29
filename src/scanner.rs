@@ -539,11 +539,7 @@ fn read_directories(path: &Path, workers: usize, bulk: bool, walker: &mut Walker
                     }
                 }
                 let state = queue.0.lock().map_err(io)?;
-                walker.percent = scan_percent(
-                    walker.percent,
-                    state.completed,
-                    state.remaining(),
-                );
+                walker.percent = scan_percent(walker.percent, state.completed, state.remaining());
             }
             Ok(())
         })();

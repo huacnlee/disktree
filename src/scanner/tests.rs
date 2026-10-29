@@ -795,7 +795,9 @@ fn waiting_siblings_count_as_whole_subtrees() {
     // Open `d` and find 9 folders under it; a, b and c are still unopened.
     queue.pop().unwrap();
     for i in 0..9 {
-        queue.push(5 + i, &root.join("d").join(i.to_string())).unwrap();
+        queue
+            .push(5 + i, &root.join("d").join(i.to_string()))
+            .unwrap();
     }
     queue.active = 0;
     // Each unopened sibling is sized like `d`: itself plus 9 below.

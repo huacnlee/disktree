@@ -7,9 +7,12 @@ use nsh_base::{
     MenuEvent, context_menu, input, menu, menu_item, menu_separator, nav_page, nav_stack, tooltip,
 };
 use nsh_core::{
-    AccessibilityRole, LayoutAnimation, LayoutCurve, LayoutTransition, element::AnimatedValue,
-    element::StyleRefinement, keymap::When, prelude::*,
+    AccessibilityRole, LayoutAnimation, LayoutCurve, LayoutTransition,
     canvas::{LineCap, LineJoin},
+    element::AnimatedValue,
+    element::StyleRefinement,
+    keymap::When,
+    prelude::*,
 };
 use std::time::Duration;
 const MONO: &str = if cfg!(target_os = "macos") {
@@ -128,10 +131,16 @@ fn icon(glyph: &str) -> impl IntoElement {
     // Tabler-style outlines on a 24-unit grid, drawn at 16px.
     let path = match glyph {
         "⟳" => "M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4",
-        "↑" => "M12 19H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v3.5M19 22v-6M22 19l-3-3-3 3",
+        "↑" => {
+            "M12 19H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v3.5M19 22v-6M22 19l-3-3-3 3"
+        }
         "‹" => "M15 6l-6 6 6 6",
-        "/" => "M6 4h12a3 3 0 0 1 3 3v2a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3zM6 12h12a3 3 0 0 1 3 3v2a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-2a3 3 0 0 1 3-3zM7 8v.01M7 16v.01",
-        "☷" => "M14 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 6h10M18 6h2M4 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 12h12M11 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 18h7M15 18h5",
+        "/" => {
+            "M6 4h12a3 3 0 0 1 3 3v2a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3zM6 12h12a3 3 0 0 1 3 3v2a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-2a3 3 0 0 1 3-3zM7 8v.01M7 16v.01"
+        }
+        "☷" => {
+            "M14 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 6h10M18 6h2M4 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 12h12M11 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 18h7M15 18h5"
+        }
         _ => "M4 20h4L18.5 9.5a2.828 2.828 0 1 0-4-4L4 16v4M13.5 6.5l4 4",
     };
     canvas(
@@ -227,7 +236,13 @@ fn check_entry(
     menu_item()
         .accessibility_label({
             let label = label.clone();
-            move || Some(if on() { format!("{label}, checked").into() } else { label.clone() })
+            move || {
+                Some(if on() {
+                    format!("{label}, checked").into()
+                } else {
+                    label.clone()
+                })
+            }
         })
         .on_select(move |_: &()| action())
         .flex_row()
@@ -426,7 +441,7 @@ fn legend() -> impl IntoElement {
         .child(
             row()
                 .gap(px(13.))
-                .children(CATEGORIES.into_iter().map(|(name, color)| {
+                .children(SIZE_STOPS.into_iter().map(|(name, _, color)| {
                     row()
                         .gap(px(4.))
                         .child(view().w(px(8.)).h(px(8.)).rounded(px(1.)).bg(rgb(color)))
@@ -523,46 +538,42 @@ fn toolbar(s: State) -> impl IntoElement {
                 .border_1()
                 .border_color(rgb(LINE))
                 .children(
-                [Metric::Size, Metric::Apparent, Metric::Files]
-                    .into_iter()
-                    .map(move |metric| {
-                        view()
-                            .role(AccessibilityRole::Tab)
-                            .label(metric.label())
-                            .accessibility_state(move || nsh_core::AccessibilityState {
-                                selected: s.metric.get() == metric,
-                                ..Default::default()
-                            })
-                            .window_drag(false)
-                            .on_press(move |_: &()| {
-                                batch(|| {
-                                    s.metric.set(metric);
-                                    s.page.set(0);
+                    [Metric::Size, Metric::Apparent, Metric::Files]
+                        .into_iter()
+                        .map(move |metric| {
+                            view()
+                                .role(AccessibilityRole::Tab)
+                                .label(metric.label())
+                                .accessibility_state(move || nsh_core::AccessibilityState {
+                                    selected: s.metric.get() == metric,
+                                    ..Default::default()
                                 })
-                            })
-                            .h(px(26.))
-                            .px(px(12.))
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(5.))
-                            .bg(move || {
-                                rgba(if s.metric.get() == metric {
-                                    0x24242aff
-                                } else {
-                                    0
+                                .window_drag(false)
+                                .on_press(move |_: &()| {
+                                    batch(|| {
+                                        s.metric.set(metric);
+                                        s.page.set(0);
+                                    })
                                 })
-                            })
-                            .hover(|s| s.bg(rgb(0x1a1a1f)))
-                            .active(|s| s.bg(rgb(0x2a2a30)))
-                            .child(caption(metric.label(), 11., INK).text_color(move || {
-                                rgb(if s.metric.get() == metric {
-                                    INK
-                                } else {
-                                    MUTED
+                                .h(px(26.))
+                                .px(px(12.))
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(5.))
+                                .bg(move || {
+                                    rgba(if s.metric.get() == metric {
+                                        0x24242aff
+                                    } else {
+                                        0
+                                    })
                                 })
-                            }))
-                    }),
-            ),
+                                .hover(|s| s.bg(rgb(0x1a1a1f)))
+                                .active(|s| s.bg(rgb(0x2a2a30)))
+                                .child(caption(metric.label(), 11., INK).text_color(move || {
+                                    rgb(if s.metric.get() == metric { INK } else { MUTED })
+                                }))
+                        }),
+                ),
         )
         .child(view_menu(s))
 }
@@ -623,9 +634,12 @@ fn path_bar(s: State, filter: ElementRef) -> impl IntoElement {
                             .gap(px(3.))
                             .overflow_hidden()
                             .child(
-                                control("Go to /", Some("/"), move || s.locked(), move || {
-                                    s.navigate("/".into())
-                                })
+                                control(
+                                    "Go to /",
+                                    Some("/"),
+                                    move || s.locked(),
+                                    move || s.navigate("/".into()),
+                                )
                                 .w(px(26.))
                                 .h(px(26.)),
                             )
@@ -909,6 +923,63 @@ fn treemap(s: State, camera: Camera, filter: ElementRef) -> impl IntoElement {
             },
         ))
 }
+/// A number whose digits roll upward as it changes, odometer style.
+fn rolling(value: impl Fn() -> String + 'static, size: f32, color: u32) -> impl IntoElement {
+    let cells = computed(move || {
+        let chars: Vec<char> = value().chars().collect();
+        let len = chars.len();
+        // Keyed from the right, so a digit keeps its place as the number grows.
+        chars
+            .into_iter()
+            .enumerate()
+            .map(|(i, c)| (len - i, c))
+            .collect::<Vec<_>>()
+    });
+    row().gap(px(0.)).children([each(
+        move || cells.get(),
+        |cell| (cell.0, cell.1.is_ascii_digit()),
+        move |cell, _| {
+            let first = cell.get_untracked().1;
+            if !first.is_ascii_digit() {
+                return caption(move || cell.get().1.to_string(), size, color).into_element();
+            }
+            let line = (size * 1.25).round();
+            let digit = |c: char| c.to_digit(10).unwrap_or(0) as f32;
+            // Two strips of 0–9: every change rolls upward, through the second
+            // strip if it wraps, then jumps back unseen.
+            let at = std::cell::Cell::new(digit(first));
+            let offset = animated_value(-digit(first) * line);
+            effect(move || {
+                let next = digit(cell.get().1);
+                let mut from = at.get();
+                if from >= 10. {
+                    from -= 10.;
+                    offset.set(-from * line);
+                }
+                let to = from + (next - from).rem_euclid(10.);
+                at.set(to);
+                if to != from {
+                    offset.timing(-to * line, 280., Easing::EaseOut);
+                }
+            });
+            view()
+                .h(px(line))
+                .overflow_hidden()
+                .child(
+                    view()
+                        .bind_translate_y(&offset)
+                        .children((0..20).map(move |n| {
+                            view().h(px(line)).justify_center().child(caption(
+                                (n % 10).to_string(),
+                                size,
+                                color,
+                            ))
+                        })),
+                )
+                .into_element()
+        },
+    )])
+}
 /// The empty map while a scan runs: what has been found so far, large.
 fn scan_progress(s: State) -> impl IntoElement {
     let p = move || s.progress.get().unwrap_or_default();
@@ -916,7 +987,7 @@ fn scan_progress(s: State) -> impl IntoElement {
         .w(px(360.))
         .gap(px(14.))
         .child(caption("MAPPING YOUR SPACE", 10., MUTED).font_weight(FontWeight::SEMIBOLD))
-        .child(caption(move || format_size(p().bytes as f64), 44., INK))
+        .child(rolling(move || format_size(p().bytes as f64), 44., INK))
         .child(meter(move || p().percent as f32 / 100., 4., GREEN))
         .child(
             row()
@@ -1468,7 +1539,7 @@ fn details_page(s: State) -> impl IntoElement {
                         view()
                             .w(px(3.))
                             .h(px(19.))
-                            .bg(move || rgb(category(&s.selection.get().path).1)),
+                            .bg(move || rgb(size_color(s.selection.get().size))),
                     )
                     .child(
                         caption(move || s.selection.get().name, 20., INK)
@@ -1579,7 +1650,7 @@ fn directory_row(s: State, node: ReadSignal<Node>) -> impl IntoElement {
                     view()
                         .w(px(3.))
                         .h(px(13.))
-                        .bg(move || rgb(category(&node.get().path).1)),
+                        .bg(move || rgb(size_color(node.get().size))),
                 )
                 .child(
                     caption(
