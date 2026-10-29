@@ -1,8 +1,8 @@
 {
   "name": "disktree",
   "id": "com.huacnlee.disktree",
-  "version": "0.1.5",
-  "build": 4,
+  "version": "0.1.6",
+  "build": 5,
   "appearance": "dark",
   "rust": ".",
   "root": "App"
