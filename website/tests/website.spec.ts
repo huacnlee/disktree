@@ -41,7 +41,7 @@ test('screenshot loads at its declared size', async ({ page }) => {
   await page.goto('./');
   const image = page.locator('.app-screenshot img');
   await image.scrollIntoViewIfNeeded();
-  await expect.poll(() => image.evaluate((element: HTMLImageElement) => [element.naturalWidth, element.naturalHeight])).toEqual([2080, 1440]);
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => [element.naturalWidth, element.naturalHeight])).toEqual([2000, 1394]);
 });
 
 test('related projects link to the other projects in both languages', async ({ page }) => {

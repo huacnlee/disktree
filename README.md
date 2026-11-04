@@ -2,7 +2,7 @@
 
 A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](https://github.com/tobi/disktree). Runs on macOS and Linux with an original capacity-ring icon and a black interface with subtle dimensional surfaces and vivid size colors.
 
-<img width="2080" height="1440" alt="image" src="https://github.com/user-attachments/assets/cd8c51c5-d6c0-456d-ba84-5f391530ae39" />
+<img width="2000" height="1394" alt="Disktree showing a home directory as a nested treemap, with a contents list and free disk space in the sidebar" src="website/public/screenshot.png" />
 
 [Website](https://huacnlee.github.io/disktree/) · [Download](https://github.com/huacnlee/disktree/releases) · [Installation guide](docs/install.md)
 
