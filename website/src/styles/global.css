@@ -114,9 +114,8 @@ dd { margin: 10px 0 0; font-size: 13px; color: var(--secondary); }
 .related-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 32px; margin-bottom: 32px; }
 .related-heading h2 { margin: 0; }
 .related-heading p { margin: 0; font-size: 13px; }
-.related-projects ul { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: var(--subtle); list-style: none; margin: 0; padding: 1px; }
-.related-projects li { grid-column: span 2; background: var(--bg); padding: 24px; min-width: 0; }
-.related-projects li:nth-child(n + 4) { grid-column: span 3; }
+.related-projects ul { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--subtle); list-style: none; margin: 0; padding: 1px; }
+.related-projects li { background: var(--bg); padding: 24px; min-width: 0; }
 .related-projects li > a { font-family: 'Geist Variable', 'Noto Sans CJK SC', sans-serif; font-size: 16px; font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
 .related-projects li > a:hover { color: var(--brand); }
 .related-projects li p { font-size: 12px; line-height: 1.8; margin: 14px 0 0; color: var(--muted); }
@@ -129,8 +128,6 @@ footer .text-link { font-size: inherit; }
   .hero { gap: 28px; }
   .section { gap: 40px; }
   .related-projects ul { grid-template-columns: repeat(2, 1fr); }
-  .related-projects li, .related-projects li:nth-child(n + 4) { grid-column: auto; }
-  .related-projects li:last-child { grid-column: 1 / -1; }
 }
 @media (max-width: 680px) {
   .shell { width: calc(100% - 32px); }
