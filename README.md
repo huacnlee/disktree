@@ -16,6 +16,8 @@ A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](htt
 - Review full paths before moving items to the system Trash. Permanent deletion and emptying the system Trash require separate confirmation.
 - Large scan indexes stay in Rust; the UI reads bounded directory pages and map previews.
 
+**If this helps you, please [sponsor me](https://github.com/sponsors/huacnlee).**
+
 ## Install
 
 Supports macOS 14 or later on Apple silicon, and Linux x86_64 with GTK 4.14 or later.

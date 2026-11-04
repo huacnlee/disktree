@@ -1,7 +1,7 @@
 export const copy = {
   en: {
     description: 'Disktree is a native disk-space explorer for macOS and Linux. See what fills your disk as a nested treemap, then review exactly what you remove.',
-    skip: 'Skip to content', source: 'Source', language: 'Language', darkMode: 'Dark mode', nav: 'Main navigation',
+    skip: 'Skip to content', sponsor: 'Sponsor me', sponsorText: 'If this helps you, please sponsor me.', sponsorButton: 'Sponsor on GitHub', source: 'Source', language: 'Language', darkMode: 'Dark mode', nav: 'Main navigation',
     eyebrow: 'Native disk-space explorer', title: 'See where your disk went.',
     intro: 'Disktree scans as soon as it opens and draws your disk as a nested treemap, colored by size. Move through it with a pinch, a drag or the keyboard, mark what you no longer need, and review every path before it goes.',
     explore: 'See how it works', note: 'macOS · Linux · Open source',
@@ -43,7 +43,7 @@ export const copy = {
   },
   'zh-CN': {
     description: 'Disktree 是 macOS 与 Linux 上的原生磁盘空间浏览器。用嵌套 treemap 看清磁盘被什么占满，删除前逐条确认路径。',
-    skip: '跳转到内容', source: '源码', language: '语言', darkMode: '深色模式', nav: '主导航',
+    skip: '跳转到内容', sponsor: '赞助作者', sponsorText: '如果这个项目帮到了你，请赞助我。', sponsorButton: '在 GitHub 上赞助', source: '源码', language: '语言', darkMode: '深色模式', nav: '主导航',
     eyebrow: '原生磁盘空间浏览器', title: '看清磁盘空间去了哪里',
     intro: 'Disktree 一打开就开始扫描，把磁盘画成一张按大小着色的嵌套 treemap。用双指、拖动或键盘在其中移动，标记不再需要的内容，并在删除前核对每一条路径。',
     explore: '了解使用方式', note: 'macOS · Linux · 开源',

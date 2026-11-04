@@ -169,3 +169,10 @@ footer .text-link { font-size: inherit; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .tile-marked::after, .tile-check { opacity: 1; }
 }
+
+.sponsor-button, nav a.sponsor-button { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; flex: none; background: var(--brand); color: var(--brand-ink); border: 1px solid var(--brand); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.sponsor-button:hover, nav a.sponsor-button:hover { background: color-mix(in oklab, var(--brand), white 14%); color: var(--brand-ink); }
+.sponsor { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; margin: 0 0 44px; padding: 16px 20px; border: 1px solid var(--brand); }
+.sponsor p { margin: 0; color: var(--brand); font-size: 16px; font-weight: 600; }
+.sponsor .sponsor-button { height: 36px; padding: 0 16px; font-size: 14px; }
+@media (max-width: 680px) { nav a.sponsor-button { display: none; } .sponsor { margin-bottom: 32px; } }
