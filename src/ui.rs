@@ -846,11 +846,11 @@ fn treemap(s: State, camera: Camera, filter: ElementRef) -> impl IntoElement {
             width.set(b.size.width.0);
             height.set(b.size.height.0);
         })
-        .on_hover_in(move |_: &()| {
+        .on_mouse_enter(move |_: &MouseEvent| {
             s.in_map.set(true);
             filter.blur();
         })
-        .on_hover_out(move |_: &()| {
+        .on_mouse_leave(move |_: &MouseEvent| {
             s.in_map.set(false);
             s.hovered.set(Vec::new());
         })
@@ -1062,8 +1062,8 @@ fn map_tile(s: State, tile: ReadSignal<Tile>) -> impl IntoElement {
         .role(AccessibilityRole::Button)
         .label(move || tile.get().node.name)
         .on_press(move |_: &()| s.choose(tile.get_untracked().node))
-        .on_hover_in(move |_: &()| s.hover(tile.get_untracked().node, true))
-        .on_hover_out(move |_: &()| s.hover(tile.get_untracked().node, false))
+        .on_mouse_enter(move |_: &MouseEvent| s.hover(tile.get_untracked().node, true))
+        .on_mouse_leave(move |_: &MouseEvent| s.hover(tile.get_untracked().node, false))
         .child(when(
             move || tile.get().width * s.zoom.get() > 70. && tile.get().height * s.zoom.get() > 26.,
             move || {
@@ -1641,8 +1641,8 @@ fn directory_row(s: State, node: ReadSignal<Node>) -> impl IntoElement {
         .role(AccessibilityRole::Button)
         .label(move || format!("Select {}", node.get().name))
         .on_press(move |_: &()| s.choose(node.get_untracked()))
-        .on_hover_in(move |_: &()| s.hover(node.get_untracked(), true))
-        .on_hover_out(move |_: &()| s.hover(node.get_untracked(), false))
+        .on_mouse_enter(move |_: &MouseEvent| s.hover(node.get_untracked(), true))
+        .on_mouse_leave(move |_: &MouseEvent| s.hover(node.get_untracked(), false))
         .child(
             row()
                 .gap(px(6.))
