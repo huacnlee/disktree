@@ -1,11 +1,13 @@
 # Disktree
 
-A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](https://github.com/tobi/disktree). Runs on macOS and Linux with an original capacity-ring icon and a black interface with subtle dimensional surfaces and vivid category colors.
+A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](https://github.com/tobi/disktree). Runs on macOS and Linux with an original capacity-ring icon and a black interface with subtle dimensional surfaces and vivid size colors.
 
 <img width="2080" height="1440" alt="image" src="https://github.com/user-attachments/assets/cd8c51c5-d6c0-456d-ba84-5f391530ae39" />
 
+[Website](https://huacnlee.github.io/disktree/) · [Download](https://github.com/huacnlee/disktree/releases) · [Installation guide](docs/install.md)
+
 - Scans immediately on launch and remembers the last directory.
-- Nested, color-coded treemap for code, Git, caches, builds, toolchains, media, and more.
+- Nested treemap colored by size, with details that classify code, Git, caches, builds, toolchains, media, and more.
 - Native treemap transitions.
 - Native MacBook pinch gestures and mouse dragging; keyboard zoom controls.
 - Click to select; click a selected folder again to enter it. Breadcrumbs navigate with one click; long paths collapse intermediate folders into a menu instead of scrolling.
@@ -16,42 +18,21 @@ A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](htt
 
 ## Install
 
-Release archives include the native application with an in-process Rust scanner. Python, Node, and nsh are not required to run them.
+Supports macOS 14 or later on Apple silicon, and Linux x86_64 with GTK 4.14 or later.
 
-### mise
+**Install script**
+
+```sh
+curl -fsSL https://huacnlee.github.io/disktree/install.sh | sh
+```
+
+**mise**
 
 ```sh
 mise use -g github:huacnlee/disktree
-# Install without selecting a global version:
-# mise install github:huacnlee/disktree@latest
-disktree
 ```
 
-The [mise GitHub backend](https://mise.jdx.dev/dev-tools/backends/github.html) selects the release asset for your platform.
-
-### curl
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/huacnlee/disktree/main/install.sh | sh
-```
-
-To install a specific version:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/huacnlee/disktree/main/install.sh | sh -s -- v0.1.0
-```
-
-The installer verifies the release's SHA-256 checksum and installs it at one fixed location, `~/.local/share/disktree` (`$XDG_DATA_HOME/disktree`), replacing the previous release in place, so only one version is ever kept. It links the command as `~/.local/bin/disktree`, with a macOS app entry in `~/Applications`. Override these locations with `DISKTREE_BIN_DIR`, `DISKTREE_INSTALL_DIR`, and `DISKTREE_APPS_DIR`; the installer refuses to replace an existing `DISKTREE_INSTALL_DIR` it did not create. Run the installer again to upgrade; it also removes the per-version directories older installers left behind.
-
-### Manual download
-
-Download the matching `.tar.gz` from [Releases](https://github.com/huacnlee/disktree/releases), extract the complete archive, and run `./disktree`. On macOS, you can also open `Disktree.app`. Keep its accompanying resources together.
-
-macOS requires 14 or later. Builds use ad hoc signing and are not notarized; first launch may require allowing the app in System Settings → Privacy & Security. Linux requires GTK 4.14 or later, such as Ubuntu 24.04:
-
-```sh
-sudo apt install libgtk-4-1 libglib2.0-bin
-```
+Release archives include the native application with an in-process Rust scanner. Python, Node, and nsh are not required to run them. For a specific version, custom locations, manual download, upgrades, or removal, see the [installation guide](docs/install.md).
 
 ## Controls
 
@@ -86,6 +67,7 @@ The last directory is saved in `~/Library/Application Support/Disktree/state.jso
 - `src/main.rs`: standalone desktop launcher.
 - `tests/ui.rs`: production Rust UI integration test.
 - `scripts/`: existing release packaging and smoke checks.
+- `website/`: the [project website](https://huacnlee.github.io/disktree/), which also serves `install.sh`. See [website/README.md](website/README.md).
 
 ## Development
 
@@ -140,6 +122,8 @@ git push origin v0.1.1
 ```
 
 Manual workflow runs build CI artifacts without publishing a release.
+
+`.github/workflows/website.yml` publishes `website/` to GitHub Pages when it or `install.sh` changes on `main`.
 
 ## Performance (historical JSX implementation)
 
@@ -232,3 +216,11 @@ The measurements and implementation suggest:
 Disk size measures allocated blocks; Apparent measures logical bytes; Files weights the map by file count. Hard-linked bytes are counted once. Symbolic links, other devices, and cloud-only directory placeholders are not traversed. Unreadable paths are reported and make scan totals incomplete. APFS clones are counted independently; system purgeable space and snapshots are not scanned files. Protected macOS locations may require Full Disk Access for the app, or for the terminal during development.
 
 The application is MIT licensed. The nsh runtime is distributed under its accompanying Apache license. The icon in `assets/icon.svg` is original to this project.
+
+## More projects
+
+- [Omasend](https://huacnlee.github.io/omasend/) — A native LocalSend client. Share files, folders, screenshots, and text over your local network, with no account or cloud upload.
+- [Omamail](https://huacnlee.github.io/omamail/) — A native email and calendar app with multiple accounts and keyboard navigation. Runs as an Omarchy plugin or a standalone desktop app.
+- [noop](https://huacnlee.github.io/noop/) — Your own AI team. Claude Code and Codex agents on your own computers do the daily work and only ask when something really needs you.
+- [omarchy-mihoro](https://github.com/huacnlee/omarchy-mihoro) — An Omarchy bar panel for Mihoro. Monitor your proxy, switch between Rule, Global, and Direct modes, and manage subscriptions.
+- [omarchy-which-key](https://github.com/huacnlee/omarchy-which-key) — Which Key for the desktop. Hold Super to see a shortcut guide drawn from your active Omarchy and Hyprland keybindings.

@@ -28,7 +28,12 @@ url = next(x for x in a if x.startswith('https://'))
 if '-w' in a:
     print('https://github.com/huacnlee/disktree/releases/tag/v0.1.0', end='')
 else:
-    shutil.copyfile(Path(os.environ['FIXTURES']) / url.rsplit('/', 1)[1], out)
+    if os.environ.get('CURL_EXIT'):
+        sys.exit(int(os.environ['CURL_EXIT']))
+    source = Path(os.environ['FIXTURES']) / url.rsplit('/', 1)[1]
+    if not source.exists():
+        sys.exit(22)
+    shutil.copyfile(source, out)
 ''')
         for tool in tools.iterdir():
             tool.chmod(0o755)
@@ -61,7 +66,10 @@ else:
         return archive
 
     def install(self, env, version='v0.1.0'):
-        return subprocess.run(['sh', str(ROOT / 'install.sh'), version], env=env, capture_output=True, text=True)
+        return self.run_installer(env, version)
+
+    def run_installer(self, env, *args):
+        return subprocess.run(['sh', str(ROOT / 'install.sh'), *args], env=env, capture_output=True, text=True)
 
     def versions(self, root):
         return sorted(path for path in root.glob('v*') if path.is_dir() and not path.is_symlink())
@@ -188,6 +196,85 @@ else:
                 self.assertIn('Release has no disktree executable', result.stderr)
                 self.assertEqual(self.assert_active(base, system, 'v0.1.0'), active)
                 self.assertEqual(sorted(p.name for p in active.parent.iterdir() if p.name.startswith('.disktree')), [])
+
+    def test_version_and_dir_options_install_where_requested(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base, env = self.fixture(temporary, 'Linux')
+            self.package(base, 'Linux', 'v0.1.1')
+            root = base / 'chosen'
+            result = self.run_installer(env, '--version', '0.1.1', '--dir', str(root))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.assert_active(base, 'Linux', 'v0.1.1'), root)
+
+    def test_no_arguments_install_latest_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base, env = self.fixture(temporary, 'Linux')
+            self.package(base, 'Linux', 'v0.1.0')
+            result = self.run_installer(env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assert_active(base, 'Linux', 'v0.1.0')
+
+    def test_invalid_options_print_usage(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            _, env = self.fixture(temporary, 'Linux')
+            for args in [['--version'], ['--dir'], ['--unknown']]:
+                result = self.run_installer(env, *args)
+                self.assertEqual(result.returncode, 2, args)
+                self.assertIn('Usage: install.sh', result.stderr)
+            result = self.run_installer(env, '--help')
+            self.assertEqual(result.returncode, 0)
+            self.assertIn('Usage: install.sh', result.stdout)
+
+    def test_missing_platform_build_is_named_and_preserves_active_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base, env = self.fixture(temporary, 'Linux')
+            self.package(base, 'Linux')
+            self.assertEqual(self.install(env).returncode, 0)
+            active = self.assert_active(base, 'Linux', 'v0.1.0')
+            result = self.install(env, 'v0.1.1')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('has no aarch64-unknown-linux-gnu build', result.stderr)
+            self.assertEqual(self.assert_active(base, 'Linux', 'v0.1.0'), active)
+
+    def test_network_failure_is_not_reported_as_a_missing_build(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            _, env = self.fixture(temporary, 'Linux')
+            env['CURL_EXIT'] = '6'
+            result = self.install(env, 'v0.1.1')
+            self.assertEqual(result.returncode, 6)
+            self.assertNotIn('has no', result.stderr)
+
+    def test_dir_with_trailing_slash_upgrades_in_place(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base, env = self.fixture(temporary, 'Linux')
+            root = base / 'apps/disktree'
+            for version in ['v0.1.0', 'v0.1.1']:
+                self.package(base, 'Linux', version)
+                result = self.run_installer(env, '--version', version, '--dir', f'{root}/')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.assert_active(base, 'Linux', version), root)
+
+    def test_unnamed_install_directories_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base, env = self.fixture(temporary, 'Linux')
+            self.package(base, 'Linux')
+            for directory in ['/', '.', '..', f'{base}/x/..', './']:
+                result = self.run_installer(env, '--version', 'v0.1.0', '--dir', directory)
+                self.assertEqual(result.returncode, 1, directory)
+                self.assertIn('Choose a named install directory', result.stderr)
+
+    def test_empty_positional_version_means_latest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base, env = self.fixture(temporary, 'Linux')
+            self.package(base, 'Linux')
+            result = self.run_installer(env, '')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assert_active(base, 'Linux', 'v0.1.0')
+
+    def test_website_serves_the_repository_installer(self):
+        published = ROOT / 'website/public/install.sh'
+        self.assertTrue(published.is_symlink())
+        self.assertEqual(published.resolve(), ROOT / 'install.sh')
 
 
 if __name__ == '__main__':
