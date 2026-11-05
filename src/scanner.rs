@@ -16,6 +16,9 @@ use std::{
 
 #[cfg(target_os = "macos")]
 mod macos;
+mod media;
+mod remove;
+use remove::{Removed, remove_tree};
 
 type Result<T> = std::result::Result<T, String>;
 const PAGE_SIZE: usize = 80;
@@ -879,18 +882,35 @@ fn remove_with_progress(
         totals.push((node.files.max(u64::from(!node.directory)), node.size));
     }
     let device = index.root()?.record.device;
-    let mut progress = RemovalProgress::new(published, &totals);
-    progress.publish(true);
+    let workers = if permanent {
+        remove::workers_for(&index.root_path)
+    } else {
+        1
+    };
+    let progress = Mutex::new(RemovalProgress::new(published, &totals));
+    let lock = || {
+        progress
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    };
+    lock().publish(true);
     let mut item = 0;
     let result = execute_removals(paths, |path| {
-        let (base_files, base_bytes) = (progress.files, progress.bytes);
+        let (base_files, base_bytes) = {
+            let mut progress = lock();
+            progress.current = path.to_owned();
+            progress.publish(true);
+            (progress.files, progress.bytes)
+        };
         let (files, bytes) = totals[item];
-        progress.current = path.to_owned();
-        progress.publish(true);
         let result = if permanent {
-            remove_tree(path, device, &mut |size| {
-                progress.files = (progress.files + 1).min(base_files + files);
-                progress.bytes = (progress.bytes + size).min(base_bytes + bytes);
+            // Files listed without a size count as this item's average.
+            let average = bytes / files.max(1);
+            remove_tree(path, device, workers, &|removed: Removed| {
+                let mut progress = lock();
+                progress.files = (progress.files + removed.files).min(base_files + files);
+                progress.bytes = (progress.bytes + removed.bytes + removed.unmeasured * average)
+                    .min(base_bytes + bytes);
                 progress.publish(false);
             })
         } else {
@@ -898,6 +918,7 @@ fn remove_with_progress(
         };
         if result.is_ok() {
             item += 1;
+            let mut progress = lock();
             progress.items = item;
             progress.files = base_files + files;
             progress.bytes = base_bytes + bytes;
@@ -905,138 +926,10 @@ fn remove_with_progress(
         }
         result
     });
+    let mut progress = lock();
     progress.current.clear();
     progress.publish(true);
     result
-}
-/// Removes `path` without following symbolic links or leaving `device`.
-/// Directories are opened relative to their parent with `O_NOFOLLOW`, so a
-/// directory swapped for a link mid-removal is never traversed.
-fn remove_tree(path: &str, device: u64, on_file: &mut dyn FnMut(u64)) -> Result<()> {
-    let meta = fs::symlink_metadata(path).map_err(io)?;
-    if !meta.is_dir() || meta.file_type().is_symlink() {
-        fs::remove_file(path).map_err(io)?;
-        on_file(meta.blocks() * 512);
-        return Ok(());
-    }
-    let name = CString::new(Path::new(path).as_os_str().as_bytes()).map_err(io)?;
-    // SAFETY: `name` is a valid C string; the descriptor is owned by `Dir`.
-    let fd = unsafe {
-        libc::open(
-            name.as_ptr(),
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-        )
-    };
-    let dir = Dir::open(fd, device, meta.ino())?;
-    remove_contents(dir, device, on_file)?;
-    fs::remove_dir(path).map_err(io)
-}
-struct Dir(*mut libc::DIR);
-impl Dir {
-    /// Takes ownership of `fd`, checking it is still the expected directory.
-    fn open(fd: libc::c_int, device: u64, inode: u64) -> Result<Self> {
-        if fd < 0 {
-            return Err(io(std::io::Error::last_os_error()));
-        }
-        // SAFETY: `fd` is an open descriptor this function owns.
-        unsafe {
-            let mut stat = std::mem::zeroed::<libc::stat>();
-            if libc::fstat(fd, &mut stat) != 0 {
-                let error = std::io::Error::last_os_error();
-                libc::close(fd);
-                return Err(io(error));
-            }
-            if stat.st_dev as u64 != device {
-                libc::close(fd);
-                return Err("Cannot permanently delete across mounted volumes".into());
-            }
-            if stat.st_ino as u64 != inode {
-                libc::close(fd);
-                return Err("Directory changed. Scan again.".into());
-            }
-            let dir = libc::fdopendir(fd);
-            if dir.is_null() {
-                let error = std::io::Error::last_os_error();
-                libc::close(fd);
-                return Err(io(error));
-            }
-            Ok(Self(dir))
-        }
-    }
-    fn fd(&self) -> libc::c_int {
-        // SAFETY: the stream stays open while `self` lives.
-        unsafe { libc::dirfd(self.0) }
-    }
-    fn names(&self) -> Result<Vec<CString>> {
-        let mut names = vec![];
-        loop {
-            // SAFETY: readdir reports errors through errno, cleared first.
-            unsafe {
-                *errno() = 0;
-                let entry = libc::readdir(self.0);
-                if entry.is_null() {
-                    if *errno() != 0 {
-                        return Err(io(std::io::Error::last_os_error()));
-                    }
-                    return Ok(names);
-                }
-                let name = std::ffi::CStr::from_ptr((*entry).d_name.as_ptr());
-                if name.to_bytes() != b"." && name.to_bytes() != b".." {
-                    names.push(name.to_owned());
-                }
-            }
-        }
-    }
-}
-impl Drop for Dir {
-    fn drop(&mut self) {
-        // SAFETY: the stream was opened by `Dir::open` and is closed once.
-        unsafe { libc::closedir(self.0) };
-    }
-}
-#[cfg(target_os = "linux")]
-unsafe fn errno() -> *mut libc::c_int {
-    unsafe { libc::__errno_location() }
-}
-#[cfg(target_os = "macos")]
-unsafe fn errno() -> *mut libc::c_int {
-    unsafe { libc::__error() }
-}
-fn remove_contents(dir: Dir, device: u64, on_file: &mut dyn FnMut(u64)) -> Result<()> {
-    // Read the whole directory before unlinking: removing entries while a
-    // stream is open leaves later readdir results unspecified.
-    let names = dir.names()?;
-    let fd = dir.fd();
-    for name in names {
-        // SAFETY: `fd` is open for the loop and `name` is a valid C string.
-        unsafe {
-            let mut stat = std::mem::zeroed::<libc::stat>();
-            if libc::fstatat(fd, name.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) != 0 {
-                return Err(io(std::io::Error::last_os_error()));
-            }
-            if stat.st_mode & libc::S_IFMT == libc::S_IFDIR {
-                let child = libc::openat(
-                    fd,
-                    name.as_ptr(),
-                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-                );
-                remove_contents(
-                    Dir::open(child, device, stat.st_ino as u64)?,
-                    device,
-                    on_file,
-                )?;
-                if libc::unlinkat(fd, name.as_ptr(), libc::AT_REMOVEDIR) != 0 {
-                    return Err(io(std::io::Error::last_os_error()));
-                }
-            } else {
-                if libc::unlinkat(fd, name.as_ptr(), 0) != 0 {
-                    return Err(io(std::io::Error::last_os_error()));
-                }
-                on_file(stat.st_blocks as u64 * 512);
-            }
-        }
-    }
-    Ok(())
 }
 fn execute_removals(
     paths: Vec<String>,
