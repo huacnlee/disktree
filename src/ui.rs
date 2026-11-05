@@ -301,7 +301,7 @@ impl Camera {
         }
     }
 }
-/// Commands for unattended smoke tests: `wait <ms>`, `key mod+r`, `quit`.
+/// Commands for unattended smoke tests: `wait <ms>`, `key mod+r`, `update`, `quit`.
 fn run_script(s: State, script: String) {
     s.owner.run(move || {
         spawn(async move {
@@ -312,7 +312,64 @@ fn run_script(s: State, script: String) {
                         timer(Duration::from_millis(ms.parse().unwrap_or(0))).await
                     }
                     (Some("key"), Some("cmd+r" | "mod+r")) => s.scan(s.path.get_untracked()),
-                    (Some("quit"), None) => std::process::exit(0),
+                    (Some(command @ ("update" | "update-auto")), None) => {
+                        if command == "update-auto" {
+                            while s.updater.busy.get_untracked() {
+                                timer(Duration::from_millis(50)).await;
+                            }
+                            if s.updater.open.get_untracked()
+                                || s.updater.message.get_untracked().is_empty()
+                            {
+                                crate::updater::record_smoke(
+                                    "failed",
+                                    "Automatic update check did not complete quietly",
+                                );
+                                log::error!("Automatic update check did not complete quietly");
+                                crate::quit();
+                                return;
+                            }
+                            s.updater.open.set(true);
+                        } else {
+                            s.updater.check();
+                        }
+                        while s.updater.busy.get_untracked() {
+                            timer(Duration::from_millis(50)).await;
+                        }
+                        if s.updater.update.get_untracked().is_some() {
+                            s.updater.download();
+                            while s.updater.busy.get_untracked() {
+                                timer(Duration::from_millis(50)).await;
+                            }
+                            if s.updater.downloaded.get_untracked().is_some() {
+                                s.updater.install();
+                                while s.updater.busy.get_untracked() {
+                                    timer(Duration::from_millis(50)).await;
+                                }
+                            }
+                        }
+                        let message = s.updater.message.get_untracked();
+                        if message != "Disktree is up to date." {
+                            crate::updater::record_smoke(
+                                "failed",
+                                &s.updater
+                                    .error
+                                    .get_untracked()
+                                    .unwrap_or_else(|| message.clone()),
+                            );
+                            log::error!("Update smoke failed: {message}");
+                            crate::quit();
+                            return;
+                        }
+                        crate::updater::record_smoke("current", &message);
+                        log::warn!(
+                            "Update smoke complete: Disktree {} is up to date",
+                            option_env!("DISKTREE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+                        );
+                    }
+                    (Some("quit"), None) => {
+                        crate::quit();
+                        return;
+                    }
                     _ => log::warn!("Unknown DISKTREE_UI_SCRIPT command: {command}"),
                 }
             }
@@ -385,6 +442,7 @@ pub fn App() -> impl IntoElement {
         },
     );
     s.scan(String::new());
+    s.updater.check_in_background();
     if let Ok(script) = std::env::var("DISKTREE_UI_SCRIPT") {
         run_script(s, script);
     }
@@ -431,6 +489,7 @@ pub fn App() -> impl IntoElement {
                 .child(sidebar(s)),
         )
         .child(statusbar(s))
+        .child(when(move || s.updater.open.get(), move || update_dialog(s)))
 }
 fn legend() -> impl IntoElement {
     scroll()
@@ -475,6 +534,13 @@ fn view_menu(s: State) -> impl IntoElement {
                 move || s.levels.set(depth),
             )
         }))
+        .child(rule())
+        .child(entry(
+            "Check for updates…",
+            move || s.updater.busy.get(),
+            INK,
+            move || s.updater.check(),
+        ))
         .child(rule())
         .child(entry(
             "Empty Trash…",
@@ -1923,6 +1989,22 @@ fn statusbar(s: State) -> impl IntoElement {
         .border_color(rgb(LINE))
         .bg(rgb(PANEL))
         .child(when(
+            move || s.updater.update.get().is_some() && !s.updater.open.get(),
+            move || {
+                view()
+                    .role(AccessibilityRole::Button)
+                    .label(move || if s.updater.downloaded.get().is_some() { "Restart to update" } else { "Update available" })
+                    .window_drag(false)
+                    .px(px(6.))
+                    .h(px(24.))
+                    .justify_center()
+                    .rounded(px(4.))
+                    .hover(|v| v.bg(rgb(RAISED)))
+                    .on_press(move |_: &()| s.updater.open.set(true))
+                    .child(caption(move || if s.updater.downloaded.get().is_some() { "Restart to update" } else { "Update available" }, 10., GREEN))
+            },
+        ))
+        .child(when(
             move || s.progress.get().is_some(),
             move || {
                 row()
@@ -2018,4 +2100,96 @@ fn statusbar(s: State) -> impl IntoElement {
                     )
             },
         ))
+}
+
+fn update_dialog(s: State) -> impl IntoElement {
+    let u = s.updater;
+    nsh_base::dialog()
+        .on_cancel(move |_: &()| {
+            if !u.busy.get_untracked() {
+                u.open.set(false);
+            }
+        })
+        .close_on_escape(move || !u.busy.get())
+        .child(
+            view()
+                .flex_1()
+                .items_center()
+                .justify_center()
+                .bg(rgba(0x00000099))
+                .child(
+                    view()
+                        .w(px(440.))
+                        .p(px(24.))
+                        .gap(px(16.))
+                        .bg(rgb(PANEL))
+                        .border_1()
+                        .border_color(rgb(LINE))
+                        .rounded(px(10.))
+                        .child(caption("Disktree updates", 16., INK))
+                        .child(caption(move || u.message.get(), 12., MUTED))
+                        .child(when(
+                            move || u.update.get().is_some() && u.downloaded.get().is_none(),
+                            move || {
+                                button(
+                                    move || {
+                                        if u.update.get().is_some_and(|v| v.can_install()) {
+                                            "Download update"
+                                        } else {
+                                            "Open GitHub Releases"
+                                        }
+                                    },
+                                    move || u.busy.get(),
+                                    move || {
+                                        if let Some(update) = u.update.get_untracked() {
+                                            if update.can_install() {
+                                                u.download();
+                                            } else {
+                                                spawn(async move {
+                                                    let _ = open_url("https://github.com/huacnlee/disktree/releases/latest").await;
+                                                });
+                                            }
+                                        }
+                                    },
+                                )
+                            },
+                        ))
+                        .child(when(
+                            move || u.downloaded.get().is_some(),
+                            move || {
+                                button(
+                                    "Install and restart",
+                                    move || u.busy.get() || s.locked(),
+                                    move || {
+                                        if !s.locked() {
+                                            u.install();
+                                        }
+                                    },
+                                )
+                            },
+                        ))
+                        .child(when(
+                            move || {
+                                !u.busy.get()
+                                    && u.update.get().is_none()
+                                    && u.message.get() != "Disktree is up to date."
+                            },
+                            move || {
+                                button("Open GitHub Releases", false, move || {
+                                    spawn(async {
+                                        let _ = open_url(
+                                            "https://github.com/huacnlee/disktree/releases/latest",
+                                        )
+                                        .await;
+                                    });
+                                })
+                            },
+                        ))
+                        .child(button(
+                            "Close",
+                            move || u.busy.get(),
+                            move || u.open.set(false),
+                        )),
+                ),
+        )
 }

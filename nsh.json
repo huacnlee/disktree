@@ -5,5 +5,8 @@
   "build": 5,
   "appearance": "dark",
   "rust": ".",
-  "root": "App"
+  "root": "App",
+  "updater": {
+    "github": "huacnlee/disktree"
+  }
 }

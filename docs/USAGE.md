@@ -68,3 +68,43 @@ The last successfully scanned or browsed directory is saved in
 ~/Library/Application Support/Disktree/state.json. On the next launch it
 is restored and scanned automatically. A missing directory falls back
 to the home directory. DISKTREE_ROOT overrides this startup location.
+
+## App updates
+
+Installed builds check for updates in the background on startup. A new version
+adds **Update available** to the status bar without opening a dialog. Open it,
+download the update, then choose **Install and restart**. You can also check
+manually through **View options → Check for updates…**. Restart stays disabled
+while scanning or removing files. The saved directory stays outside the app
+installation and is restored by the new process. A read-only installation offers
+a manual download link instead.
+
+Disktree is a native Rust app: `src/updater.rs` uses `nsh-updater` for manifest
+signatures, version checks, archive verification and transactional installation,
+and streams HTTP on a background thread. UI dependencies use NSH 0.4.0; the
+updater is fixed to #922’s merged commit (`12af3d77`) until a crates.io release
+includes it.
+
+`scripts/build-release.py` retains the existing flat installer archive and also
+writes a one-directory update archive and a platform manifest. The release
+workflow merges the platform manifests into `latest.json` and validates the
+archives before publishing. Automatic updates require that manifest in the next
+GitHub Release; this integration does not publish a release.
+
+To exercise actual packaged GUI applications with an ephemeral signing key and
+a loopback server:
+
+```sh
+python3 scripts/smoke-updater.py
+```
+
+It builds test versions 0.1.6 and 0.1.7, tests download/replacement/restart and
+state preservation, quiet automatic checks, and refuses modified signatures, archive size/hash changes,
+a different app, non-executable replacements, read-only installs and Linux launch
+failures. It only replaces disposable copies under `.nsh/test-data`, never the
+user's installation. OpenSSL with Ed25519 support is required for this test.
+
+The **Desktop checks** workflow runs Rust tests/lint, installer/manifest checks
+and the real packaged GUI update scenarios on Linux and macOS. These checks do
+not publish a release. The separate Release workflow publishes `latest.json`
+alongside the normal installer and the longer `-updater.tar.gz` payload.
