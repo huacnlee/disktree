@@ -13,6 +13,15 @@ spec.loader.exec_module(module)
 
 
 class ManifestTests(unittest.TestCase):
+    def test_installer_names_stay_compatible_and_updaters_are_distinct(self):
+        spec = importlib.util.spec_from_file_location('build_release', ROOT / 'scripts/build-release.py')
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        installer, updater = build.archive_names('1.2.3', 'x86_64-unknown-linux-gnu')
+        self.assertEqual(installer, 'disktree-v1.2.3-x86_64-unknown-linux-gnu.tar.gz')
+        self.assertEqual(updater, 'disktree-v1.2.3-x86_64-unknown-linux-gnu-updater.tar.gz')
+        self.assertGreater(len(updater), len(installer))
+
     def fragment(self, directory, platform, version='1.0.0'):
         name = f'disktree-{version}-{platform}.tar.gz'
         archive = directory / name

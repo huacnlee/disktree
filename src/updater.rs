@@ -10,6 +10,7 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, String>;
+const DEVELOPMENT_MESSAGE: &str = "Updates are available in installed builds of Disktree.";
 
 pub(crate) struct Update {
     pub available: Available,
@@ -61,8 +62,7 @@ impl Update {
     pub fn check() -> Result<Option<Self>> {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let path = config_path(&exe).ok_or("Cannot locate the installed app.")?;
-        let bytes = fs::read(path)
-            .map_err(|_| "Updates are available in installed builds of Disktree.".to_owned())?;
+        let bytes = fs::read(path).map_err(|_| DEVELOPMENT_MESSAGE.to_owned())?;
         let config = Config::parse(&bytes).map_err(|e| e.to_string())?;
         let installation = Installation::current(&config.id, &bytes)
             .ok_or("This installation cannot update itself.")?;
@@ -190,6 +190,7 @@ pub(crate) struct Controls {
     pub open: Signal<bool>,
     pub busy: Signal<bool>,
     pub message: Signal<String>,
+    pub error: Signal<Option<String>>,
     pub update: Signal<Option<Arc<Update>>>,
     pub downloaded: Signal<Option<Arc<Downloaded>>>,
     owner: Owner,
@@ -201,18 +202,34 @@ impl Controls {
             open: signal(false),
             busy: signal(false),
             message: signal(String::new()),
+            error: signal(None),
             update: signal_with(None, SignalEquals::Never),
             downloaded: signal_with(None, SignalEquals::Never),
             owner: Owner::current(),
         }
     }
 
+    fn fail(self, error: String, message: &str) {
+        log::warn!("App update: {error}");
+        self.error.set(Some(error));
+        self.message.set(message.to_owned());
+    }
+
     pub fn check(self) {
+        self.open.set(true);
+        self.start_check();
+    }
+
+    pub fn check_in_background(self) {
+        self.start_check();
+    }
+
+    fn start_check(self) {
         if self.busy.get_untracked() {
             return;
         }
-        self.open.set(true);
         self.busy.set(true);
+        self.error.set(None);
         self.update.set(None);
         self.downloaded.set(None);
         self.message.set("Checking for updates…".into());
@@ -227,8 +244,18 @@ impl Controls {
                         self.update.set(Some(Arc::new(update)));
                     }
                     Ok(Ok(None)) => self.message.set("Disktree is up to date.".into()),
-                    Ok(Err(error)) => self.message.set(error),
-                    Err(error) => self.message.set(error.to_string()),
+                    Ok(Err(error)) => {
+                        let message = if error == DEVELOPMENT_MESSAGE {
+                            DEVELOPMENT_MESSAGE
+                        } else {
+                            "Could not check for updates. Try again or open GitHub Releases."
+                        };
+                        self.fail(error, message);
+                    }
+                    Err(error) => self.fail(
+                        error.to_string(),
+                        "Could not check for updates. Please try again.",
+                    ),
                 }
                 self.busy.set(false);
             });
@@ -243,6 +270,7 @@ impl Controls {
             return;
         };
         self.busy.set(true);
+        self.error.set(None);
         self.message.set("Downloading update…".into());
         self.owner.run(move || {
             spawn(async move {
@@ -267,8 +295,14 @@ impl Controls {
                         self.message
                             .set("Update downloaded. Restart Disktree to install it.".into());
                     }
-                    Ok(Err(error)) => self.message.set(error),
-                    Err(error) => self.message.set(error.to_string()),
+                    Ok(Err(error)) => self.fail(
+                        error,
+                        "The update could not be downloaded or verified. Please try again.",
+                    ),
+                    Err(error) => self.fail(
+                        error.to_string(),
+                        "The update could not be downloaded. Please try again.",
+                    ),
                 }
                 self.busy.set(false);
             });
@@ -283,6 +317,7 @@ impl Controls {
             return;
         };
         self.busy.set(true);
+        self.error.set(None);
         self.message.set("Installing update…".into());
         self.owner.run(move || {
             spawn(async move {
@@ -297,9 +332,35 @@ impl Controls {
                     }
                 };
                 self.downloaded.set(None);
-                self.message.set(error);
+                self.fail(
+                    error,
+                    "The update could not be installed. Try again or download it manually.",
+                );
                 self.busy.set(false);
             });
         });
+    }
+}
+
+/// Only the explicit UI smoke script writes these lifecycle observations.
+pub(crate) fn record_smoke(outcome: &str, message: &str) {
+    let path = crate::scanner::state_file().with_extension("updater.jsonl");
+    let result = (|| -> std::io::Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        writeln!(
+            file,
+            "{}",
+            serde_json::json!({
+                "outcome": outcome, "message": message, "pid": std::process::id(),
+                "version": option_env!("DISKTREE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+            })
+        )?;
+        file.sync_all()
+    })();
+    if let Err(error) = result {
+        log::error!("Could not record update smoke outcome: {error}");
     }
 }

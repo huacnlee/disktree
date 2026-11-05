@@ -18,8 +18,16 @@ and needs no sudo. It installs at one fixed location, `~/.local/share/disktree`
 version is ever kept. It links the command as `~/.local/bin/disktree`, adds an app
 entry to `~/Applications` on macOS, and adds a desktop entry and icon on Linux.
 
-Run the installer again to upgrade. It also removes the per-version directories
-older installers left behind.
+Updater-enabled builds check for new versions quietly on startup. Select
+**Update available** in the status bar, download the update, then choose
+**Install and restart**. You can also use **View options → Check for updates…**.
+The saved scan directory is preserved. Downloads never restart the app without
+confirmation.
+
+Older builds without this feature can be upgraded by running the installer
+again. It also removes the per-version directories older installers left behind.
+In-app updates require the release’s `latest.json`; when unavailable or the
+installation is read-only, use the installer or download from GitHub Releases.
 
 | Option | Environment variable | Purpose |
 | --- | --- | --- |
@@ -55,7 +63,7 @@ Linux desktop entry. Upgrade with `mise upgrade`.
 
 ## Manual download
 
-Download the matching `.tar.gz` from
+Download the matching installer `.tar.gz` (without the `-updater` suffix) from
 [Releases](https://github.com/huacnlee/disktree/releases), verify it against
 `SHA256SUMS`, extract the complete archive, and run `./disktree`. On macOS, you can
 also open `Disktree.app`. Keep its accompanying resources together.

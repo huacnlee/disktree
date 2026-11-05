@@ -312,8 +312,26 @@ fn run_script(s: State, script: String) {
                         timer(Duration::from_millis(ms.parse().unwrap_or(0))).await
                     }
                     (Some("key"), Some("cmd+r" | "mod+r")) => s.scan(s.path.get_untracked()),
-                    (Some("update"), None) => {
-                        s.updater.check();
+                    (Some(command @ ("update" | "update-auto")), None) => {
+                        if command == "update-auto" {
+                            while s.updater.busy.get_untracked() {
+                                timer(Duration::from_millis(50)).await;
+                            }
+                            if s.updater.open.get_untracked()
+                                || s.updater.message.get_untracked().is_empty()
+                            {
+                                crate::updater::record_smoke(
+                                    "failed",
+                                    "Automatic update check did not complete quietly",
+                                );
+                                log::error!("Automatic update check did not complete quietly");
+                                nsh_core::element::desktop::close_window();
+                                return;
+                            }
+                            s.updater.open.set(true);
+                        } else {
+                            s.updater.check();
+                        }
                         while s.updater.busy.get_untracked() {
                             timer(Duration::from_millis(50)).await;
                         }
@@ -331,10 +349,18 @@ fn run_script(s: State, script: String) {
                         }
                         let message = s.updater.message.get_untracked();
                         if message != "Disktree is up to date." {
+                            crate::updater::record_smoke(
+                                "failed",
+                                &s.updater
+                                    .error
+                                    .get_untracked()
+                                    .unwrap_or_else(|| message.clone()),
+                            );
                             log::error!("Update smoke failed: {message}");
                             nsh_core::element::desktop::close_window();
                             return;
                         }
+                        crate::updater::record_smoke("current", &message);
                         log::warn!(
                             "Update smoke complete: Disktree {} is up to date",
                             option_env!("DISKTREE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
@@ -416,6 +442,7 @@ pub fn App() -> impl IntoElement {
         },
     );
     s.scan(String::new());
+    s.updater.check_in_background();
     if let Ok(script) = std::env::var("DISKTREE_UI_SCRIPT") {
         run_script(s, script);
     }
@@ -1962,6 +1989,22 @@ fn statusbar(s: State) -> impl IntoElement {
         .border_color(rgb(LINE))
         .bg(rgb(PANEL))
         .child(when(
+            move || s.updater.update.get().is_some() && !s.updater.open.get(),
+            move || {
+                view()
+                    .role(AccessibilityRole::Button)
+                    .label(move || if s.updater.downloaded.get().is_some() { "Restart to update" } else { "Update available" })
+                    .window_drag(false)
+                    .px(px(6.))
+                    .h(px(24.))
+                    .justify_center()
+                    .rounded(px(4.))
+                    .hover(|v| v.bg(rgb(RAISED)))
+                    .on_press(move |_: &()| s.updater.open.set(true))
+                    .child(caption(move || if s.updater.downloaded.get().is_some() { "Restart to update" } else { "Update available" }, 10., GREEN))
+            },
+        ))
+        .child(when(
             move || s.progress.get().is_some(),
             move || {
                 row()
@@ -2093,7 +2136,7 @@ fn update_dialog(s: State) -> impl IntoElement {
                                         if u.update.get().is_some_and(|v| v.can_install()) {
                                             "Download update"
                                         } else {
-                                            "Download manually"
+                                            "Open GitHub Releases"
                                         }
                                     },
                                     move || u.busy.get(),
@@ -2103,8 +2146,7 @@ fn update_dialog(s: State) -> impl IntoElement {
                                                 u.download();
                                             } else {
                                                 spawn(async move {
-                                                    let _ = open_url(update.available.url.clone())
-                                                        .await;
+                                                    let _ = open_url("https://github.com/huacnlee/disktree/releases/latest").await;
                                                 });
                                             }
                                         }
@@ -2124,6 +2166,23 @@ fn update_dialog(s: State) -> impl IntoElement {
                                         }
                                     },
                                 )
+                            },
+                        ))
+                        .child(when(
+                            move || {
+                                !u.busy.get()
+                                    && u.update.get().is_none()
+                                    && u.message.get() != "Disktree is up to date."
+                            },
+                            move || {
+                                button("Open GitHub Releases", false, move || {
+                                    spawn(async {
+                                        let _ = open_url(
+                                            "https://github.com/huacnlee/disktree/releases/latest",
+                                        )
+                                        .await;
+                                    });
+                                })
                             },
                         ))
                         .child(button(

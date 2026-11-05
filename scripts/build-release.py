@@ -6,6 +6,12 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parent.parent
 def run(*command,**kwargs):
     subprocess.run(command,cwd=ROOT,check=True,**kwargs)
+def archive_names(version,target):
+    # Keep the established installer name and target. The longer updater
+    # suffix lets release-asset matchers prefer the normal installer.
+    stem=f'disktree-v{version}-{target}'
+    return f'{stem}.tar.gz',f'{stem}-updater.tar.gz'
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--version',default='0.1.1')
@@ -71,14 +77,15 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
     # Validate the CLI wrapper before archiving; smoke-package checks native scanning.
     run(str(stage/'disktree'),'--version')
     dist=ROOT/'.nsh/dist';dist.mkdir(exist_ok=True)
-    archive=dist/f'disktree-v{version}-{target}.tar.gz'
+    installer_name,updater_name=archive_names(version,target)
+    archive=dist/installer_name
     with tarfile.open(archive,'w:gz') as tar:
         for child in sorted(stage.iterdir()):tar.add(child,arcname=child.name)
     # Keep the existing flat installer archive compatible. The updater expects
     # one top-level installation directory (or one .app on macOS).
     os_key='macos' if system=='Darwin' else 'linux'
     arch='aarch64' if platform.machine() in ('arm64','aarch64') else 'x86_64'
-    update_archive=dist/f'disktree-{version}-{os_key}-{arch}.tar.gz'
+    update_archive=dist/updater_name
     with tarfile.open(update_archive,'w:gz') as tar:
         if system=='Darwin':tar.add(stage/'Disktree.app',arcname='Disktree.app')
         else:tar.add(stage,arcname='disktree')

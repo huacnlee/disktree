@@ -50,6 +50,8 @@ fn rust_ui_scans_browses_filters_and_confirms_removal() {
     })
     .unwrap();
     ui.wait_for("label:Select victim.bin").unwrap();
+    // Startup checks must not interrupt the explorer with a dialog.
+    assert!(!ui.screen().matches("text:Disktree updates").unwrap());
     ui.press("label:View options").unwrap();
     ui.press("label:Check for updates…").unwrap();
     ui.wait_for("text:Updates are available in installed builds of Disktree.")

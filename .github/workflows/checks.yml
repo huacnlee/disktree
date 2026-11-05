@@ -1,0 +1,60 @@
+name: Desktop checks
+on:
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'nsh.json'
+      - '.github/workflows/checks.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-checks-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    name: Native update (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev xvfb
+      - name: Signing test tools
+        if: runner.os == 'macOS'
+        run: brew install openssl@3
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+      - name: Rust tests and lint
+        run: |
+          cargo test --locked
+          cargo clippy --all-targets --locked -- --deny warnings
+          cargo fmt --check
+      - name: Installer and release manifest tests
+        run: python3 -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Real Linux GUI update and rollback
+        if: runner.os == 'Linux'
+        run: xvfb-run -a python3 scripts/smoke-updater.py
+      - name: Real macOS GUI update and rollback
+        if: runner.os == 'macOS'
+        run: python3 scripts/smoke-updater.py

@@ -71,6 +71,8 @@ The last directory is saved in `~/Library/Application Support/Disktree/state.jso
 - `scripts/`: existing release packaging and smoke checks.
 - `website/`: the [project website](https://huacnlee.github.io/disktree/), which also serves `install.sh`. See [website/README.md](website/README.md).
 
+Updater-enabled releases check for updates quietly on launch. Use **Update available** in the status bar, or **View options → Check for updates…**, then download and confirm **Install and restart**. Your saved scan directory is preserved. Older releases can be upgraded with the installer.
+
 ## Development
 
 The application is entirely Rust, using nsh's Rust component API. `nsh.json`

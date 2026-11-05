@@ -35,6 +35,10 @@ def main():
     if not args.skip_build:
         for version in (args.old, args.new):
             run('python3', str(ROOT / 'scripts/build-release.py'), '--version', version)
+    openssl = 'openssl'
+    if platform.system() == 'Darwin' and shutil.which('brew'):
+        prefix = subprocess.check_output(['brew', '--prefix', 'openssl@3'], text=True).strip()
+        openssl = str(Path(prefix) / 'bin/openssl')
     arch = 'aarch64' if platform.machine() in ('arm64', 'aarch64') else 'x86_64'
     system = 'apple-darwin' if platform.system() == 'Darwin' else 'unknown-linux-gnu'
     packages = [ROOT / '.nsh/package' / f'disktree-{version}-{arch}-{system}' for version in (args.old, args.new)]
@@ -43,12 +47,12 @@ def main():
             raise RuntimeError(f'Missing package: {package}')
     scratch = ROOT / '.nsh/test-data'
     scratch.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='updater-', dir=scratch) as temporary:
+    with tempfile.TemporaryDirectory(prefix='updater smoke ', dir=scratch) as temporary:
         base = Path(temporary)
         # Test-only, ephemeral key. No credentials are committed or published.
         secret = base / 'test-key.pem'
-        run('openssl', 'genpkey', '-algorithm', 'ED25519', '-out', str(secret), stdout=subprocess.DEVNULL)
-        public_der = subprocess.check_output(['openssl', 'pkey', '-in', str(secret), '-pubout', '-outform', 'DER'])
+        run(openssl, 'genpkey', '-algorithm', 'ED25519', '-out', str(secret), stdout=subprocess.DEVNULL)
+        public_der = subprocess.check_output([openssl, 'pkey', '-in', str(secret), '-pubout', '-outform', 'DER'])
         public = base64.b64encode(public_der[-32:]).decode()
         serving = base / 'server'
         serving.mkdir()
@@ -64,9 +68,11 @@ def main():
         thread.start()
         url = f'http://127.0.0.1:{server.server_port}/latest.json'
         try:
-            cases = ['success', 'bad-signature', 'bad-size', 'bad-hash', 'wrong-app', 'not-executable', 'read-only']
+            cases = ['success', 'auto-success', 'bad-signature', 'bad-size', 'bad-hash', 'wrong-app', 'not-executable', 'read-only']
             if system != 'apple-darwin':
                 cases.append('launch-failure')
+            if os.geteuid() == 0:
+                cases.remove('read-only')
             if args.case:
                 unknown = set(args.case) - set(cases)
                 if unknown:
@@ -110,7 +116,7 @@ def main():
                 framed = base / 'framed'
                 framed.write_bytes(b'nsh-updater-manifest\0' + manifest_path.read_bytes())
                 signature = base / 'signature'
-                run('openssl', 'pkeyutl', '-sign', '-rawin', '-inkey', str(secret), '-in', str(framed), '-out', str(signature))
+                run(openssl, 'pkeyutl', '-sign', '-rawin', '-inkey', str(secret), '-in', str(framed), '-out', str(signature))
                 (serving / 'latest.json.sig').write_bytes(base64.b64encode(signature.read_bytes()))
                 if case == 'bad-signature':
                     manifest['notes'] = 'Changed after signing'
@@ -127,11 +133,14 @@ def main():
                 before = hashlib.sha256(executable.read_bytes()).hexdigest()
                 state = folder / 'state.json'
                 log_path = folder / 'app.log'
+                observations = state.with_suffix('.updater.jsonl')
+                def outcomes():
+                    return [json.loads(line) for line in observations.read_text().splitlines()] if observations.exists() else []
                 state.write_text(json.dumps({'directory': str(tree)}))
                 fallback = folder / 'fallback-home'
                 fallback.mkdir()
                 environment = dict(os.environ, HOME=str(fallback), DISKTREE_STATE=str(state),
-                                   DISKTREE_UI_SCRIPT='wait 1000; update; wait 1000; quit')
+                                   DISKTREE_UI_SCRIPT=f'wait 1000; {"update-auto" if case == "auto-success" else "update"}; wait 1000; quit')
                 # The restarted app must read saved state, not a forced root.
                 # A broken restore can only scan this disposable fallback home.
                 environment.pop('DISKTREE_ROOT', None)
@@ -144,9 +153,9 @@ def main():
                                                stderr=subprocess.STDOUT, start_new_session=True)
                     try:
                         code = process.wait(timeout=90)
-                        if case == 'success':
+                        if case in ('success', 'auto-success'):
                             until = time.monotonic() + 30
-                            while f'Disktree {args.new} is up to date' not in log_path.read_text():
+                            while not any(event['version'] == args.new and event['outcome'] == 'current' for event in outcomes()):
                                 if time.monotonic() > until:
                                     raise AssertionError('New GUI did not restart and report up-to-date')
                                 time.sleep(0.1)
@@ -163,8 +172,8 @@ def main():
                             expected = {'bad-signature': 'signature', 'bad-size': 'bytes', 'bad-hash': 'SHA-256',
                                         'wrong-app': 'com.example.other', 'not-executable': 'not executable',
                                         'read-only': 'Download the update', 'launch-failure': 'Exec format error'}[case]
-                            assert expected in log_path.read_text(), log_path.read_text()
-                        if case != 'success':
+                            assert any(event['outcome'] == 'failed' and expected in event['message'] for event in outcomes()), outcomes()
+                        if case not in ('success', 'auto-success'):
                             retry_environment = dict(environment, DISKTREE_UI_SCRIPT='wait 1000; quit')
                             run(str(executable), env=retry_environment, stdout=output, stderr=subprocess.STDOUT, timeout=30)
                         assert json.loads(state.read_text())['directory'] == str(tree)
