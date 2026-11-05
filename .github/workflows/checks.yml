@@ -38,7 +38,8 @@ jobs:
       - name: Signing test tools
         if: runner.os == 'macOS'
         run: brew install openssl@3
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: cargo-cache
         with:
           path: |
             ~/.cargo/registry
@@ -58,3 +59,12 @@ jobs:
       - name: Real macOS GUI update and rollback
         if: runner.os == 'macOS'
         run: python3 scripts/smoke-updater.py
+      - name: Keep compiled dependencies for follow-up checks
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}

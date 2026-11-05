@@ -9,3 +9,11 @@ pub use ui::App;
 
 #[native_module("disktree/native")]
 fn native(_registry: &mut Registry) {}
+
+/// Leave the standalone native event loop after its current UI batch.
+pub(crate) fn quit() {
+    #[cfg(target_os = "macos")]
+    nsh_platform_macos::quit_app();
+    #[cfg(target_os = "linux")]
+    nsh_core::element::desktop::close_window();
+}

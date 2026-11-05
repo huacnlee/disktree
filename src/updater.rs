@@ -327,7 +327,7 @@ impl Controls {
                     Ok(Ok(())) => {
                         // Let the native window and renderer shut down on
                         // their own thread before main returns.
-                        nsh_core::element::desktop::close_window();
+                        crate::quit();
                         return;
                     }
                 };

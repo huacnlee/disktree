@@ -325,7 +325,7 @@ fn run_script(s: State, script: String) {
                                     "Automatic update check did not complete quietly",
                                 );
                                 log::error!("Automatic update check did not complete quietly");
-                                nsh_core::element::desktop::close_window();
+                                crate::quit();
                                 return;
                             }
                             s.updater.open.set(true);
@@ -357,7 +357,7 @@ fn run_script(s: State, script: String) {
                                     .unwrap_or_else(|| message.clone()),
                             );
                             log::error!("Update smoke failed: {message}");
-                            nsh_core::element::desktop::close_window();
+                            crate::quit();
                             return;
                         }
                         crate::updater::record_smoke("current", &message);
@@ -367,7 +367,7 @@ fn run_script(s: State, script: String) {
                         );
                     }
                     (Some("quit"), None) => {
-                        nsh_core::element::desktop::close_window();
+                        crate::quit();
                         return;
                     }
                     _ => log::warn!("Unknown DISKTREE_UI_SCRIPT command: {command}"),
