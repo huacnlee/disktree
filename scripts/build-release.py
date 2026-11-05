@@ -55,6 +55,15 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
         resources=stage/'resources';resources.mkdir()
         shutil.copy2(cargo/'release/disktree',stage/'disktree')
         (stage/'disktree.desktop').write_text('[Desktop Entry]\nType=Application\nName=Disktree\nComment=Explore disk space with a native treemap\nExec=disktree\nTerminal=false\nCategories=System;Utility;\nIcon=disktree\n')
+    # Native Rust apps call nsh-updater directly. Keep the same package layout
+    # and configuration identity checks as NSH-generated hosts.
+    config=json.loads((ROOT/'nsh.json').read_text())
+    nsh=resources/'nsh' if system=='Darwin' else stage/'nsh'
+    (nsh/'assets').mkdir(parents=True,exist_ok=True)
+    (nsh/'app.json').write_text(json.dumps({'id':config['id'],'version':version}))
+    updater={**config['updater'],'id':config['id'],'version':version}
+    (nsh/'assets/nsh-updater.json').write_text(json.dumps(updater))
+    (stage/'.disktree-install').write_text(f'v{version} {target}\n')
     shutil.copy2(ROOT/'assets/icon.svg',resources/'icon.svg')
     shutil.copy2(ROOT/'LICENSE',stage/'LICENSE')
     runtime=next(p for p in metadata['packages'] if p['name']=='nsh-core')
@@ -67,6 +76,19 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
     archive=dist/f'disktree-v{version}-{target}.tar.gz'
     with tarfile.open(archive,'w:gz') as tar:
         for child in sorted(stage.iterdir()):tar.add(child,arcname=child.name)
+    # Keep the existing flat installer archive compatible. The updater expects
+    # one top-level installation directory (or one .app on macOS).
+    os_key='macos' if system=='Darwin' else 'linux'
+    arch='aarch64' if platform.machine() in ('arm64','aarch64') else 'x86_64'
+    update_archive=dist/f'disktree-{version}-{os_key}-{arch}.tar.gz'
+    with tarfile.open(update_archive,'w:gz') as tar:
+        if system=='Darwin':tar.add(stage/'Disktree.app',arcname='Disktree.app')
+        else:tar.add(stage,arcname='disktree')
+    manifest={'id':config['id'],'version':version,'platforms':{f'{os_key}-{arch}':{
+        'url':update_archive.name,'sha256':hashlib.sha256(update_archive.read_bytes()).hexdigest(),
+        'size':update_archive.stat().st_size}}}
+    (dist/f'latest-{os_key}-{arch}.json').write_text(json.dumps(manifest,indent=2)+'\n')
+    print('Built updater archive',update_archive)
     print('Built',archive)
     print('SHA256',hashlib.sha256(archive.read_bytes()).hexdigest())
 if __name__=='__main__':main()

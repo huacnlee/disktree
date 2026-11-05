@@ -68,3 +68,35 @@ The last successfully scanned or browsed directory is saved in
 ~/Library/Application Support/Disktree/state.json. On the next launch it
 is restored and scanned automatically. A missing directory falls back
 to the home directory. DISKTREE_ROOT overrides this startup location.
+
+## App updates
+
+In an installed build, choose **View options → Check for updates…**. Download
+an available update, then choose **Install and restart**. Restart stays disabled
+while scanning or removing files. The saved directory stays outside the app
+installation and is restored by the new process. A read-only installation offers
+a manual download link instead.
+
+Disktree is a native Rust app: `src/updater.rs` uses `nsh-updater` for manifest
+signatures, version checks, archive verification and transactional installation,
+and streams HTTP on a background thread. The existing NSH UI dependencies remain
+on 0.3.0; the updater is pinned to the reviewed #922 commit until it is released.
+
+`scripts/build-release.py` retains the existing flat installer archive and also
+writes a one-directory update archive and a platform manifest. The release
+workflow merges the platform manifests into `latest.json` and validates the
+archives before publishing. Automatic updates require that manifest in the next
+GitHub Release; this integration does not publish a release.
+
+To exercise actual packaged GUI applications with an ephemeral signing key and
+a loopback server:
+
+```sh
+python3 scripts/smoke-updater.py
+```
+
+It builds test versions 0.1.6 and 0.1.7, tests download/replacement/restart and
+state preservation, and refuses modified signatures, archive size/hash changes,
+a different app, non-executable replacements, read-only installs and Linux launch
+failures. It only replaces disposable copies under `.nsh/test-data`, never the
+user's installation. OpenSSL with Ed25519 support is required for this test.

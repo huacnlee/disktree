@@ -13,6 +13,7 @@ pub(crate) enum Removal {
 #[derive(Clone, Copy)]
 pub(crate) struct State {
     pub owner: Owner,
+    pub updater: crate::updater::Controls,
     pub snapshot: Signal<Snapshot>,
     pub listing: Signal<Directory>,
     pub selection: Signal<Node>,
@@ -51,6 +52,7 @@ impl State {
     pub fn new() -> Self {
         Self {
             owner: Owner::current(),
+            updater: crate::updater::Controls::new(),
             snapshot: signal(Snapshot::default()),
             listing: signal(Directory::default()),
             selection: signal(Node::default()),

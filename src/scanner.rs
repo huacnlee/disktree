@@ -140,7 +140,7 @@ fn home() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/"))
 }
-fn state_file() -> PathBuf {
+pub(crate) fn state_file() -> PathBuf {
     if let Some(path) = std::env::var_os("DISKTREE_STATE") {
         return path.into();
     }

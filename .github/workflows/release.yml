@@ -74,7 +74,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: disktree-${{ runner.os }}-${{ runner.arch }}
-          path: .nsh/dist/*.tar.gz
+          path: .nsh/dist/*
           if-no-files-found: error
           include-hidden-files: true
   publish:
@@ -84,10 +84,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: .nsh/dist
           merge-multiple: true
+      - name: Update manifest
+        run: python scripts/update-manifest.py .nsh/dist
       - name: Checksums
         working-directory: .nsh/dist
         run: sha256sum *.tar.gz > SHA256SUMS
@@ -96,4 +99,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" .nsh/dist/* --verify-tag --generate-notes --title "Disktree $TAG"
+        run: gh release create "$TAG" .nsh/dist/*.tar.gz .nsh/dist/latest.json .nsh/dist/SHA256SUMS --verify-tag --generate-notes --title "Disktree $TAG"

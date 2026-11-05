@@ -13,6 +13,8 @@ libc = "0.2"
 nsh-core = "=0.3.0"
 nsh-base = { git = "https://github.com/longbridge/nsh.git", tag = "v0.3.0", default-features = false }
 log = "0.4"
+nsh-updater = { git = "https://github.com/longbridge/nsh.git", rev = "3f226d42e51f7b1f63f06edad7d2e1a48c7f4a0d" }
+ureq = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 rustix = { version = "1.1", features = ["fs"] }

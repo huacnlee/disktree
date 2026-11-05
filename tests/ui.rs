@@ -50,6 +50,15 @@ fn rust_ui_scans_browses_filters_and_confirms_removal() {
     })
     .unwrap();
     ui.wait_for("label:Select victim.bin").unwrap();
+    ui.press("label:View options").unwrap();
+    ui.press("label:Check for updates…").unwrap();
+    ui.wait_for("text:Updates are available in installed builds of Disktree.")
+        .unwrap();
+    assert!(!ui.screen().matches("label:Install and restart").unwrap());
+    ui.press("label:Close").unwrap();
+    ui.wait_for_gone("text:Disktree updates", Duration::from_secs(5))
+        .unwrap();
+
     // Nothing selected: the sidebar summarizes the folder shown.
     ui.wait_for("text:LARGEST").unwrap();
     assert!(ui.screen().matches("text:victim.bin").unwrap());
