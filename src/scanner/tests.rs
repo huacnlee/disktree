@@ -1117,14 +1117,85 @@ fn removing_a_tree_refuses_a_directory_replaced_since_it_was_checked() {
     let f = Fixture::new();
     let victim = f.file("victim/file");
     let meta = fs::metadata(f.0.join("victim")).unwrap();
-    let mut files = 0;
-    let error = remove_tree(
-        &f.0.join("victim").to_string_lossy(),
-        meta.dev() + 1,
-        &mut |_| files += 1,
-    )
-    .unwrap_err();
+    for workers in [1, 4] {
+        let files = AtomicU64::new(0);
+        let error = remove_tree(
+            &f.0.join("victim").to_string_lossy(),
+            meta.dev() + 1,
+            workers,
+            &|removed| {
+                files.fetch_add(removed.files, Ordering::Relaxed);
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains("mounted volumes"), "{error}");
+        assert!(victim.exists());
+        assert_eq!(files.load(Ordering::Relaxed), 0);
+    }
+}
+
+#[test]
+fn removing_a_tree_on_several_workers_reports_every_file_and_keeps_link_targets() {
+    for workers in [1, 4] {
+        let f = Fixture::new();
+        let mut expected = 0;
+        for a in 0..6 {
+            for b in 0..5 {
+                for c in 0..4 {
+                    f.file(&format!("tree/{a}/{b}/{c}"));
+                    expected += 1;
+                }
+                fs::create_dir_all(f.0.join(format!("tree/{a}/{b}/empty/deeper"))).unwrap();
+            }
+        }
+        let kept = f.file("outside/keep");
+        std::os::unix::fs::symlink(f.0.join("outside"), f.0.join("tree/0/link")).unwrap();
+        expected += 1;
+        let device = fs::metadata(&f.0).unwrap().dev();
+        let reported = Mutex::new(Removed::default());
+        remove_tree(
+            &f.0.join("tree").to_string_lossy(),
+            device,
+            workers,
+            &|removed| {
+                let mut total = reported.lock().unwrap();
+                total.files += removed.files;
+                total.bytes += removed.bytes;
+                total.unmeasured += removed.unmeasured;
+            },
+        )
+        .unwrap();
+        assert!(!f.0.join("tree").exists(), "{workers} workers");
+        assert!(kept.exists());
+        let reported = *reported.lock().unwrap();
+        assert_eq!(reported.files, expected, "{workers} workers");
+        assert!(
+            reported.bytes + reported.unmeasured * 8192 >= 120 * 8192,
+            "{reported:?}"
+        );
+    }
+}
+
+#[test]
+fn removing_a_tree_on_several_workers_stops_at_a_mounted_subdirectory() {
+    let f = Fixture::new();
+    f.file("tree/a/file");
+    f.file("tree/b/file");
+    let index = f.scan();
+    // Pretend the scan's volume is another one: every subdirectory then
+    // fails its device check, and the removal reports the first failure.
+    let root = index.root().unwrap().record.device;
+    let error = remove_tree(&f.0.join("tree").to_string_lossy(), root + 1, 4, &|_| {}).unwrap_err();
     assert!(error.contains("mounted volumes"), "{error}");
-    assert!(victim.exists());
-    assert_eq!(files, 0);
+    assert!(f.0.join("tree/a/file").exists());
+}
+
+#[test]
+fn solid_state_detection_answers_for_any_path() {
+    // The answer depends on the machine; asking must neither fail nor
+    // change for the same volume.
+    let f = Fixture::new();
+    let first = media::solid_state(&f.0);
+    assert_eq!(media::solid_state(&f.0), first);
+    assert!(!media::solid_state(Path::new("/definitely/missing/path")));
 }
