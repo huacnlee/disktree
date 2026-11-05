@@ -84,6 +84,9 @@ def main():
                 candidate = folder / 'candidate/disktree'
                 shutil.copytree(packages[0], installed)
                 shutil.copytree(packages[1], candidate)
+                # macOS replaces the .app inside the installation; Linux
+                # replaces the installation directory itself.
+                replacement_parent = installed if system == 'apple-darwin' else installed.parent
                 tree = folder / 'files'
                 tree.mkdir()
                 (tree / 'keep.bin').write_bytes(b'x' * 4096)
@@ -129,7 +132,7 @@ def main():
                         file.seek(20)
                         file.write(bytes([file.read(1)[0] ^ 1]))
                 if case == 'read-only':
-                    installed.parent.chmod(0o555)
+                    replacement_parent.chmod(0o555)
                 before = hashlib.sha256(executable.read_bytes()).hexdigest()
                 state = folder / 'state.json'
                 log_path = folder / 'app.log'
@@ -178,14 +181,14 @@ def main():
                             run(str(executable), env=retry_environment, stdout=output, stderr=subprocess.STDOUT, timeout=30)
                         assert json.loads(state.read_text())['directory'] == str(tree)
                         assert (tree / 'keep.bin').stat().st_size == 4096
-                        assert not list(installed.parent.glob('.nsh-updater-*'))
+                        assert not list(replacement_parent.glob('.nsh-updater-*'))
                         assert not list(folder.glob('updates/download-*'))
                         print(f'{case}: PASS', flush=True)
                     except Exception:
                         print(log_path.read_text())
                         raise
                     finally:
-                        installed.parent.chmod(0o755)
+                        replacement_parent.chmod(0o755)
                         try:
                             os.killpg(process.pid, signal.SIGTERM)
                         except ProcessLookupError:
