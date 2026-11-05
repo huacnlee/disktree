@@ -66,9 +66,7 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
     (stage/'.disktree-install').write_text(f'v{version} {target}\n')
     shutil.copy2(ROOT/'assets/icon.svg',resources/'icon.svg')
     shutil.copy2(ROOT/'LICENSE',stage/'LICENSE')
-    runtime=next(p for p in metadata['packages'] if p['name']=='nsh-core')
-    source=Path(runtime['manifest_path']).parents[2]
-    shutil.copy2(source/'LICENSE-APACHE',stage/'LICENSE.nsh')
+    shutil.copy2(ROOT/'assets/LICENSE.nsh',stage/'LICENSE.nsh')
     if system=='Darwin':run('codesign','--force','--deep','--sign','-','--timestamp=none',str(stage/'Disktree.app'))
     # Validate the CLI wrapper before archiving; smoke-package checks native scanning.
     run(str(stage/'disktree'),'--version')

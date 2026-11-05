@@ -2,7 +2,24 @@
 # Install a verified prebuilt release. No sudo, Python or nsh required.
 set -eu
 repo=huacnlee/disktree
-version=${1:-${DISKTREE_VERSION:-latest}}
+version=${DISKTREE_VERSION:-latest}
+install_dir=${DISKTREE_INSTALL_DIR:-}
+usage() {
+  printf '%s\n' 'Usage: install.sh [--version VERSION] [--dir DIRECTORY]' \
+    'Defaults: latest release; ${XDG_DATA_HOME:-~/.local/share}/disktree.'
+}
+while [ "$#" -gt 0 ]; do
+  case $1 in
+    --version|--dir)
+      [ "$#" -ge 2 ] || { usage >&2; exit 2; }
+      if [ "$1" = --version ]; then version=$2; else install_dir=$2; fi
+      shift 2;;
+    -h|--help) usage; exit 0;;
+    -*) usage >&2; exit 2;;
+    # A bare version keeps older documented commands working.
+    *) [ -z "$1" ] || version=$1; shift;;
+  esac
+done
 case $(uname -s) in Darwin) platform=apple-darwin;; Linux) platform=unknown-linux-gnu;; *) echo 'Supported platforms: macOS and Linux' >&2; exit 1;; esac
 case $(uname -m) in arm64|aarch64) arch=aarch64;; x86_64|amd64) arch=x86_64;; *) echo 'Unsupported CPU architecture' >&2; exit 1;; esac
 fetch() { curl --proto '=https' --tlsv1.2 -fsSL --retry 3 "$@"; }
@@ -27,7 +44,15 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
-fetch "$base/$archive" -o "$scratch/$archive"
+printf 'Downloading Disktree %s for %s-%s...\n' "$version" "$arch" "$platform"
+status=0
+fetch "$base/$archive" -o "$scratch/$archive" || status=$?
+# curl exits 22 on an HTTP error; anything else is a network or disk problem.
+if [ "$status" -eq 22 ]; then
+  printf 'Disktree %s has no %s-%s build. See https://github.com/%s/releases\n' "$version" "$arch" "$platform" "$repo" >&2
+  exit 1
+fi
+[ "$status" -eq 0 ] || exit "$status"
 fetch "$base/SHA256SUMS" -o "$scratch/SHA256SUMS"
 expected=$(awk -v file="$archive" '$2 == file {print $1}' "$scratch/SHA256SUMS")
 [ "${#expected}" -eq 64 ] || { echo 'Release checksum is missing' >&2; exit 1; }
@@ -38,7 +63,9 @@ else
 fi
 [ "$expected" = "$actual" ] || { echo 'Checksum verification failed' >&2; exit 1; }
 data_home=${XDG_DATA_HOME:-$HOME/.local/share}
-install_root=${DISKTREE_INSTALL_DIR:-$data_home/disktree}
+install_root=${install_dir:-$data_home/disktree}
+while [ "$install_root" != / ] && [ "${install_root%/}" != "$install_root" ]; do install_root=${install_root%/}; done
+case ${install_root##*/} in ''|.|..) echo 'Choose a named install directory' >&2; exit 1;; esac
 bin_dir=${DISKTREE_BIN_DIR:-$HOME/.local/bin}
 marker=.disktree-install
 lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
@@ -118,7 +145,7 @@ elif [ -f "$install_root/disktree.desktop" ]; then
   escaped=$(printf '%s' "$install_root/disktree" | sed 's/\\/\\\\/g; s/"/\\"/g; s/`/\\`/g; s/\$/\\$/g')
   sed "s|^Exec=.*|Exec=\"$escaped\"|" "$install_root/disktree.desktop" > "$applications/disktree.desktop"
 fi
-if [ -z "${DISKTREE_INSTALL_DIR:-}" ]; then
+if [ -z "$install_dir" ]; then
   legacy=$data_home/nsh-disktree
   if [ -d "$legacy" ] && [ ! -L "$legacy" ]; then
     prune_versions "$legacy"
