@@ -28,6 +28,7 @@ const INK: u32 = 0xededf0;
 const MUTED: u32 = 0x85858f;
 const GREEN: u32 = 0x65f193;
 const RED: u32 = 0xff8078;
+const YELLOW: u32 = 0xf5c451;
 const MENU_HOVER: u32 = 0x35373b;
 fn caption(value: impl IntoReactive<SharedString>, size: f32, color: u32) -> Text {
     text(value)
@@ -312,6 +313,9 @@ fn run_script(s: State, script: String) {
                         timer(Duration::from_millis(ms.parse().unwrap_or(0))).await
                     }
                     (Some("key"), Some("cmd+r" | "mod+r")) => s.scan(s.path.get_untracked()),
+                    (Some("full-disk-access"), None) => {
+                        crate::permissions::open_full_disk_access_settings()
+                    }
                     (Some(command @ ("update" | "update-auto")), None) => {
                         if command == "update-auto" {
                             while s.updater.busy.get_untracked() {
@@ -1979,6 +1983,25 @@ fn review_page(s: State) -> impl IntoElement {
     )
 }
 fn statusbar(s: State) -> impl IntoElement {
+    // Pulse five times after startup so people notice the button. Then recheck
+    // the grant, so the button goes away after the user allows access.
+    let glow = signal(false);
+    if s.full_disk_access_missing.get_untracked() {
+        spawn(async move {
+            timer(Duration::from_millis(800)).await;
+            for i in 0..10 {
+                glow.set(i % 2 == 0);
+                timer(Duration::from_millis(500)).await;
+            }
+            glow.set(false);
+            while s.full_disk_access_missing.get_untracked() {
+                timer(Duration::from_secs(2)).await;
+                if crate::permissions::full_disk_access() == Some(true) {
+                    s.full_disk_access_missing.set(false);
+                }
+            }
+        });
+    }
     row()
         .test_id("statusbar")
         .h(px(28.))
@@ -2002,6 +2025,25 @@ fn statusbar(s: State) -> impl IntoElement {
                     .hover(|v| v.bg(rgb(RAISED)))
                     .on_press(move |_: &()| s.updater.open.set(true))
                     .child(caption(move || if s.updater.downloaded.get().is_some() { "Restart to update" } else { "Update available" }, 10., GREEN))
+            },
+        ))
+        .child(when(
+            move || s.full_disk_access_missing.get(),
+            move || {
+                view()
+                    .bg(move || if glow.get() { rgba(0xf5c45166) } else { rgba(0x00000000) })
+                    .border_1()
+                    .border_color(move || if glow.get() { rgb(YELLOW) } else { rgba(0x00000000) })
+                    .role(AccessibilityRole::Button)
+                    .label("Allow Full Disk Access")
+                    .window_drag(false)
+                    .px(px(6.))
+                    .h(px(24.))
+                    .justify_center()
+                    .rounded(px(4.))
+                    .hover(|v| v.bg(rgb(RAISED)))
+                    .on_press(|_: &()| crate::permissions::open_full_disk_access_settings())
+                    .child(caption("Allow Full Disk Access", 10., YELLOW))
             },
         ))
         .child(when(

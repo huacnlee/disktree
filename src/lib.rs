@@ -1,5 +1,6 @@
 //! Native Rust disk explorer: UI, interaction, geometry, and filesystem work.
 mod model;
+mod permissions;
 mod scanner;
 mod state;
 mod ui;

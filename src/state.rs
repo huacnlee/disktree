@@ -42,6 +42,7 @@ pub(crate) struct State {
     pub scan_generation: Signal<u64>,
     pub loaded: Signal<Value>,
     pub zoom: Signal<f32>,
+    pub full_disk_access_missing: Signal<bool>,
 }
 async fn request(route: &'static str, data: Value) -> Result<Value, String> {
     blocking(move || scanner::dispatch(route, &data))
@@ -81,6 +82,7 @@ impl State {
             scan_generation: signal(0),
             loaded: signal(Value::Null),
             zoom: signal(1.0),
+            full_disk_access_missing: signal(crate::permissions::full_disk_access() == Some(false)),
         }
     }
     pub fn locked(self) -> bool {
