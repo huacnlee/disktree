@@ -1983,19 +1983,11 @@ fn review_page(s: State) -> impl IntoElement {
     )
 }
 fn statusbar(s: State) -> impl IntoElement {
-    // Pulse five times after startup so people notice the button. Then recheck
-    // the grant, so the button goes away after the user allows access.
-    let glow = signal(false);
+    // Recheck the grant, so the button goes away after the user allows access.
+    // Runs once for the app lifetime. `statusbar` must not be rebuilt
+    // reactively, or each rebuild starts another loop.
     if s.full_disk_access_missing.get_untracked() {
         spawn(async move {
-            timer(Duration::from_millis(800)).await;
-            for i in 0..10 {
-                glow.set(i % 2 == 0);
-                timer(Duration::from_millis(500)).await;
-            }
-            glow.set(false);
-            // Runs once for the app lifetime. `statusbar` must not be rebuilt
-            // reactively, or each rebuild starts another loop.
             while s.full_disk_access_missing.get_untracked() {
                 timer(Duration::from_secs(2)).await;
                 if crate::permissions::full_disk_access() == Some(true) {
@@ -2033,9 +2025,6 @@ fn statusbar(s: State) -> impl IntoElement {
             move || s.full_disk_access_missing.get(),
             move || {
                 view()
-                    .bg(move || if glow.get() { rgba(0xf5c45166) } else { rgba(0x00000000) })
-                    .border_1()
-                    .border_color(move || if glow.get() { rgb(YELLOW) } else { rgba(0x00000000) })
                     .role(AccessibilityRole::Button)
                     .label("Allow Full Disk Access")
                     .window_drag(false)
