@@ -1994,6 +1994,8 @@ fn statusbar(s: State) -> impl IntoElement {
                 timer(Duration::from_millis(500)).await;
             }
             glow.set(false);
+            // Runs once for the app lifetime. `statusbar` must not be rebuilt
+            // reactively, or each rebuild starts another loop.
             while s.full_disk_access_missing.get_untracked() {
                 timer(Duration::from_secs(2)).await;
                 if crate::permissions::full_disk_access() == Some(true) {

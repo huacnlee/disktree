@@ -1,7 +1,8 @@
 //! macOS Full Disk Access check. macOS has no public preflight for it, so we
 //! probe folders that only an app with that grant can read.
 
-pub const FULL_DISK_ACCESS_URL: &str =
+#[cfg(target_os = "macos")]
+const FULL_DISK_ACCESS_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
 
 #[cfg(target_os = "macos")]
@@ -33,6 +34,19 @@ fn probe(result: std::io::Result<()>) -> Option<bool> {
     }
 }
 
+/// Open the Full Disk Access pane in System Settings.
+pub fn open_full_disk_access_settings() {
+    #[cfg(target_os = "macos")]
+    {
+        if let Err(error) = std::process::Command::new("/usr/bin/open")
+            .arg(FULL_DISK_ACCESS_URL)
+            .spawn()
+        {
+            log::warn!("could not open System Settings: {error}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::probe;
@@ -46,24 +60,5 @@ mod tests {
             Some(false)
         );
         assert_eq!(probe(Err(Error::from(ErrorKind::NotFound))), None);
-    }
-}
-
-#[cfg(target_os = "macos")]
-mod helper;
-
-/// Open the Full Disk Access pane. On macOS, also show a small floating card
-/// beside System Settings with the app row to drag into the list.
-pub fn open_full_disk_access_settings() {
-    #[cfg(target_os = "macos")]
-    {
-        if let Err(error) = std::process::Command::new("/usr/bin/open")
-            .arg(FULL_DISK_ACCESS_URL)
-            .spawn()
-        {
-            log::warn!("could not open System Settings: {error}");
-        }
-        // NSH runs click handlers off the main thread. AppKit needs the main queue.
-        dispatch2::DispatchQueue::main().exec_async(helper::show);
     }
 }
