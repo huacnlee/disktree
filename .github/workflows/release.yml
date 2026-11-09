@@ -2,12 +2,14 @@ name: Release
 on:
   push:
     tags: ['v*']
+    branches: ['feat/macos-intel']
+  pull_request:
   workflow_dispatch:
     inputs:
       version:
         description: Version to build (without v)
         required: true
-        default: '0.1.1'
+        default: '0.1.6'
 permissions:
   contents: read
 concurrency:
@@ -18,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-24.04]
+        os: [macos-15, macos-15-intel, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     env:
       TMPDIR: ${{ github.workspace }}/../disktree-tmp
@@ -47,7 +49,11 @@ jobs:
           TAG: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          version="${INPUT_VERSION:-${TAG#v}}"
+          case "$TAG" in
+            v[0-9]*) default_version="${TAG#v}" ;;
+            *) default_version="0.1.6" ;;
+          esac
+          version="${INPUT_VERSION:-$default_version}"
           python scripts/build-release.py --version "$version"
       - name: Native module regression tests
         run: |

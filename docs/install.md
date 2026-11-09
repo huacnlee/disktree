@@ -1,7 +1,7 @@
 # Install a release
 
 Releases are published at <https://github.com/huacnlee/disktree/releases>.
-Published builds support macOS 14 or later on Apple silicon, and x86_64 Linux.
+Published builds support macOS 14 or later on Apple silicon and Intel, and x86_64 Linux.
 Other platforms require a [source build](../README.md#development). Release
 archives include the native application with an in-process Rust scanner; Python,
 Node, and nsh are not required to run them.
