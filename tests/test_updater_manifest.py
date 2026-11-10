@@ -37,8 +37,9 @@ class ManifestTests(unittest.TestCase):
             directory = Path(temporary)
             self.fragment(directory, 'linux-x86_64')
             self.fragment(directory, 'macos-aarch64')
+            self.fragment(directory, 'macos-x86_64')
             manifest = module.merge(directory)
-            self.assertEqual(set(manifest['platforms']), {'linux-x86_64', 'macos-aarch64'})
+            self.assertEqual(set(manifest['platforms']), {'linux-x86_64', 'macos-aarch64', 'macos-x86_64'})
             self.assertEqual(json.loads((directory / 'latest.json').read_text()), manifest)
 
     def test_mixed_versions_and_changed_archives_are_rejected(self):

@@ -19,7 +19,8 @@ def main():
     version=args.version.removeprefix('v')
     system=platform.system()
     if system not in ('Darwin','Linux'):raise SystemExit('Build on macOS or Linux')
-    target=f"{'aarch64' if platform.machine() in ('arm64','aarch64') else 'x86_64'}-{'apple-darwin' if system=='Darwin' else 'unknown-linux-gnu'}"
+    arch='aarch64' if platform.machine() in ('arm64','aarch64') else 'x86_64'
+    target=f"{arch}-{'apple-darwin' if system=='Darwin' else 'unknown-linux-gnu'}"
     build=ROOT/'.nsh/package'
     build.mkdir(parents=True,exist_ok=True)
     env={**os.environ,'DISKTREE_VERSION':version}
@@ -84,7 +85,6 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
     # Keep the existing flat installer archive compatible. The updater expects
     # one top-level installation directory (or one .app on macOS).
     os_key='macos' if system=='Darwin' else 'linux'
-    arch='aarch64' if platform.machine() in ('arm64','aarch64') else 'x86_64'
     update_archive=dist/updater_name
     with tarfile.open(update_archive,'w:gz') as tar:
         if system=='Darwin':tar.add(stage/'Disktree.app',arcname='Disktree.app')

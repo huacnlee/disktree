@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-24.04]
+        os: [macos-15, macos-15-intel, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     env:
       TMPDIR: ${{ github.workspace }}/../disktree-tmp

@@ -20,7 +20,7 @@ A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](htt
 
 ## Install
 
-Supports macOS 14 or later on Apple silicon, and Linux x86_64 with GTK 4.14 or later.
+Supports macOS 14 or later on Apple silicon and Intel, and Linux x86_64 with GTK 4.14 or later.
 
 **Install script**
 
