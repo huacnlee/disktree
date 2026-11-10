@@ -2,13 +2,12 @@ name: Release
 on:
   push:
     tags: ['v*']
-  pull_request:
   workflow_dispatch:
     inputs:
       version:
         description: Version to build (without v)
         required: true
-        default: '0.1.6'
+        default: '0.1.1'
 permissions:
   contents: read
 concurrency:
@@ -48,11 +47,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          case "$TAG" in
-            v[0-9]*) default_version="${TAG#v}" ;;
-            *) default_version="0.1.6" ;;
-          esac
-          version="${INPUT_VERSION:-$default_version}"
+          version="${INPUT_VERSION:-${TAG#v}}"
           python scripts/build-release.py --version "$version"
       - name: Native module regression tests
         run: |
