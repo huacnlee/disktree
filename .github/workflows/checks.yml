@@ -34,7 +34,7 @@ jobs:
           components: clippy, rustfmt
       - name: Linux libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev xvfb
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xvfb
       - name: Signing test tools
         if: runner.os == 'macOS'
         run: brew install openssl@3

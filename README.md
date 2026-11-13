@@ -96,8 +96,8 @@ pinned by `Cargo.lock`. Rust source changes rebuild the native host. The direct
 macOS launcher preserves Disktree's application identity when launched from a terminal.
 
 Build a self-contained release with Rust, Python 3.11+ (existing packaging tools
-only), and Xcode Command Line Tools on macOS, or GTK 4 development libraries
-on Linux:
+only), and Xcode Command Line Tools on macOS, or GTK 4 and GStreamer (core and base
+plug-ins) development libraries on Linux:
 
 ```sh
 python3 scripts/build-release.py --version 0.1.2
