@@ -81,9 +81,8 @@ a manual download link instead.
 
 Disktree is a native Rust app: `src/updater.rs` uses `nsh-updater` for manifest
 signatures, version checks, archive verification and transactional installation,
-and streams HTTP on a background thread. UI dependencies use NSH 0.4.0; the
-updater is fixed to #922’s merged commit (`12af3d77`) until a crates.io release
-includes it.
+and streams HTTP on a background thread. All NSH dependencies, including the
+updater, use NSH 0.5.0 from crates.io.
 
 `scripts/build-release.py` retains the existing flat installer archive and also
 writes a one-directory update archive and a platform manifest. The release

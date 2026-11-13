@@ -1,6 +1,6 @@
 [package]
 name = "disktree"
-version = "0.1.6"
+version = "0.1.8"
 edition = "2024"
 license = "MIT"
 
@@ -10,22 +10,22 @@ serde = { version = "1", features = ["rc"] }
 rustc-hash = "2"
 rusqlite = { version = "=0.40.2", features = ["bundled", "functions"] }
 libc = "0.2"
-nsh-core = "0.4.0"
-nsh-base = { version = "0.4.0", default-features = false }
+nsh-core = "0.5.0"
+nsh-base = { version = "0.5.0", default-features = false }
 log = "0.4"
-nsh-updater = { git = "https://github.com/longbridge/nsh.git", rev = "12af3d778b588c2837267ff6aaed678eb5ad72a2" }
+nsh-updater = "0.5.0"
 ureq = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 rustix = { version = "1.1", features = ["fs"] }
-nsh-platform-macos = { version = "0.4.0", default-features = false }
+nsh-platform-macos = { version = "0.5.0", default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nsh-platform-linux = { version = "0.4.0", default-features = false }
+nsh-platform-linux = { version = "0.5.0", default-features = false }
 
 [dev-dependencies]
-nsh-engine = { version = "0.4.0", default-features = false }
-nsh-testing = { version = "0.4.0", default-features = false }
+nsh-engine = { version = "0.5.0", default-features = false }
+nsh-testing = { version = "0.5.0", default-features = false }
 
 # Keep filesystem scanning fast when launching with `cargo run` too.
 [profile.dev.package.disktree]

@@ -301,7 +301,7 @@ impl Camera {
         }
     }
 }
-/// Commands for unattended smoke tests: `wait <ms>`, `key mod+r`, `update`, `quit`.
+/// Commands for unattended smoke tests: `wait <ms>`, `key mod+r`, `scan <path>`, `update`, `quit`.
 fn run_script(s: State, script: String) {
     s.owner.run(move || {
         spawn(async move {
@@ -312,6 +312,7 @@ fn run_script(s: State, script: String) {
                         timer(Duration::from_millis(ms.parse().unwrap_or(0))).await
                     }
                     (Some("key"), Some("cmd+r" | "mod+r")) => s.scan(s.path.get_untracked()),
+                    (Some("scan"), Some(path)) => s.scan(path.to_string()),
                     (Some(command @ ("update" | "update-auto")), None) => {
                         if command == "update-auto" {
                             while s.updater.busy.get_untracked() {
@@ -379,10 +380,15 @@ fn run_script(s: State, script: String) {
 /// Disktree's Rust entry point, shared by `nsh dev`, `nsh run`, and Cargo.
 #[component]
 pub fn App() -> impl IntoElement {
-    nsh_core::element::desktop::set_title_bar(
-        nsh_core::desktop::TitleBarStyle::Hidden,
-        Some(px(56.)),
-    );
+    {
+        use nsh_core::desktop::{TitleBarOptions, TitleBarStyle, WindowAttributes};
+        let mut title_bar = TitleBarOptions::default();
+        title_bar.style = TitleBarStyle::Hidden;
+        title_bar.height = Some(px(56.));
+        let mut attributes = WindowAttributes::default();
+        attributes.title_bar = Some(title_bar);
+        nsh_core::element::desktop::current_window().set(attributes);
+    }
     let s = State::new();
     let camera = Camera {
         scale: animated_value(1.),

@@ -15,5 +15,5 @@ pub(crate) fn quit() {
     #[cfg(target_os = "macos")]
     nsh_platform_macos::quit_app();
     #[cfg(target_os = "linux")]
-    nsh_core::element::desktop::close_window();
+    nsh_core::element::desktop::quit();
 }

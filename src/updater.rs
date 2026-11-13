@@ -161,7 +161,7 @@ impl Update {
 }
 
 impl Downloaded {
-    pub fn install_and_launch(&self) -> Result<()> {
+    pub fn install(&self) -> Result<()> {
         // Recheck the file immediately before extraction, including downloads
         // kept while the user decides when to restart.
         let available = &self.update.available;
@@ -178,7 +178,7 @@ impl Downloaded {
         check.finish().map_err(|e| e.to_string())?;
         self.update
             .installation
-            .install_and_launch(&self.path)
+            .install(&self.path)
             .map_err(|e| e.to_string())?;
         let _ = fs::remove_file(&self.path);
         Ok(())
@@ -321,13 +321,12 @@ impl Controls {
         self.message.set("Installing update…".into());
         self.owner.run(move || {
             spawn(async move {
-                let error = match blocking(move || downloaded.install_and_launch()).await {
+                let error = match blocking(move || downloaded.install()).await {
                     Ok(Err(error)) => error,
                     Err(error) => error.to_string(),
                     Ok(Ok(())) => {
-                        // Let the native window and renderer shut down on
-                        // their own thread before main returns.
-                        crate::quit();
+                        // Quit and start the freshly installed app again.
+                        nsh_core::element::desktop::restart();
                         return;
                     }
                 };
