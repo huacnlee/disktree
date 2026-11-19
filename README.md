@@ -22,6 +22,8 @@ A native disk-space explorer built with **nsh**, inspired by [tobi/disktree](htt
 
 Supports macOS 14 or later on Apple silicon and Intel, and Linux x86_64 with GTK 4.14 or later.
 
+Stable releases only; there is no nightly channel.
+
 **Install script**
 
 ```sh
@@ -34,7 +36,7 @@ curl -fsSL https://huacnlee.github.io/disktree/install.sh | sh
 mise use -g github:huacnlee/disktree
 ```
 
-Release archives include the native application with an in-process Rust scanner. Python, Node, and nsh are not required to run them. For a specific version, custom locations, manual download, upgrades, or removal, see the [installation guide](docs/install.md).
+Release archives include the native application with an in-process Rust scanner. Python, Node, and nsh are not required to run them. For a specific version, custom locations, manual download, building from source, upgrades, or removal, see the [installation guide](docs/install.md).
 
 ## Controls
 
@@ -82,9 +84,9 @@ threads; gestures and finite treemap transitions run on the native platform.
 
 ```sh
 nsh dev
-# Or: nsh run
-# Without the CLI: cargo run --locked
 ```
+
+`nsh run` also works, and without the nsh CLI you can use `cargo run --locked`.
 
 Both CLI commands default to the current desktop system. NSH-generated files live
 under `.nsh/`: test fixtures in `.nsh/test-data`, packaging in `.nsh/package`,
