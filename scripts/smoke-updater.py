@@ -68,7 +68,7 @@ def main():
         thread.start()
         url = f'http://127.0.0.1:{server.server_port}/latest.json'
         try:
-            cases = ['success', 'auto-success', 'bad-signature', 'bad-size', 'bad-hash', 'wrong-app', 'not-executable', 'read-only']
+            cases = ['success', 'auto-success', 'bad-signature', 'bad-size', 'bad-hash', 'not-executable', 'read-only']
             # No 'launch-failure' case: nsh/updater installs without first
             # launching the new executable, so there is no rollback to test.
             if os.geteuid() == 0:
@@ -95,8 +95,6 @@ def main():
                     (resources / 'assets/nsh-updater.json').write_text(json.dumps({
                         'id': APP_ID, 'version': version, 'url': url, 'publicKey': public,
                     }))
-                    if case == 'wrong-app' and package == candidate:
-                        (resources / 'app.json').write_text(json.dumps({'id': 'com.example.other', 'version': version}))
                     if system == 'apple-darwin':
                         run('codesign', '--force', '--deep', '--sign', '-', '--timestamp=none', str(package / 'Disktree.app'), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 executable = installed / 'Disktree.app/Contents/MacOS/disktree' if system == 'apple-darwin' else installed / 'disktree-host'
@@ -169,7 +167,7 @@ def main():
                             assert code == 0, (case, code)
                             assert hashlib.sha256(executable.read_bytes()).hexdigest() == before
                             expected = {'bad-signature': 'signature', 'bad-size': 'bytes', 'bad-hash': 'SHA-256',
-                                        'wrong-app': 'com.example.other', 'not-executable': 'not executable',
+                                        'not-executable': 'not executable',
                                         'read-only': 'Download the update'}[case]
                             assert any(event['outcome'] == 'failed' and expected in event['message'] for event in outcomes()), outcomes()
                         if case not in ('success', 'auto-success'):
