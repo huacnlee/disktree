@@ -38,8 +38,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            extensions/disktree-native/target
-          key: release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('extensions/**/Cargo.lock') }}
+            ext/disktree-native/target
+          key: release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ext/**/Cargo.lock') }}
       - name: Build NSH nightly and select it for subsequent steps
         run: |
           scripts/setup-nightly.sh
@@ -55,8 +55,8 @@ jobs:
           python scripts/build-release.py --version "$version"
       - name: Native module regression tests
         run: |
-          cargo test --manifest-path extensions/disktree-native/Cargo.toml --lib --locked
-          cargo test --manifest-path extensions/disktree-native/Cargo.toml --lib --release --locked -- --ignored --test-threads=1
+          cargo test --manifest-path ext/disktree-native/Cargo.toml --lib --locked
+          cargo test --manifest-path ext/disktree-native/Cargo.toml --lib --release --locked -- --ignored --test-threads=1
       - name: TSX checks
         run: nsh check
       - name: Smoke test packaged window (Linux)

@@ -47,9 +47,9 @@ space until Trash is emptied. Protected folders may require Full Disk Access
 for the terminal running the scanner.
 
 Checks:
-  cargo test --manifest-path extensions/disktree-native/Cargo.toml --locked
-  cargo test --manifest-path extensions/disktree-native/Cargo.toml --lib --release --locked -- --ignored --test-threads=1
-  cargo clippy --manifest-path extensions/disktree-native/Cargo.toml --all-targets --locked
+  cargo test --manifest-path ext/disktree-native/Cargo.toml --locked
+  cargo test --manifest-path ext/disktree-native/Cargo.toml --lib --release --locked -- --ignored --test-threads=1
+  cargo clippy --manifest-path ext/disktree-native/Cargo.toml --all-targets --locked
   python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 
 Source: src/ui.rs (Rust components), src/state.rs (state and
