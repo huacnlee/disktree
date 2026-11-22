@@ -17,4 +17,6 @@ export const scanner: Scanner = {
     }),
   removalProgress: (progressToken) => request("/progress", { progressToken }),
   uiScript: () => request("/ui-script", {}),
+  recordUpdate: (outcome, message, version) =>
+    request("/smoke-record", { outcome, message, version }),
 };
