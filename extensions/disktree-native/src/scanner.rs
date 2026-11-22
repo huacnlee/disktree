@@ -150,12 +150,15 @@ fn packaged_version() -> String {
     let read = || -> Option<String> {
         let exe = std::env::current_exe().ok()?;
         let dir = exe.parent()?;
-        [dir.join("nsh/app.json"), dir.join("../Resources/nsh/app.json")]
-            .iter()
-            .find_map(|path| {
-                let app: Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
-                Some(app["version"].as_str()?.to_string())
-            })
+        [
+            dir.join("nsh/app.json"),
+            dir.join("../Resources/nsh/app.json"),
+        ]
+        .iter()
+        .find_map(|path| {
+            let app: Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
+            Some(app["version"].as_str()?.to_string())
+        })
     };
     read().unwrap_or_default()
 }
