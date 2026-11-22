@@ -4,10 +4,16 @@ on:
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '**/*.tsx'
+      - '**/*.ts'
+      - 'extensions/**'
+      - 'assets/**'
       - 'src/**'
       - 'scripts/**'
       - 'tests/**'
       - 'nsh.json'
+      - 'nsh.lock'
+      - '.github/workflows/release.yml'
       - '.github/workflows/checks.yml'
   workflow_dispatch:
 permissions:
@@ -23,7 +29,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,7 +40,7 @@ jobs:
           components: clippy, rustfmt
       - name: Linux libraries
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xvfb
+        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev xvfb
       - name: Signing test tools
         if: runner.os == 'macOS'
         run: brew install openssl@3
@@ -44,13 +50,18 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+            extensions/disktree-native/target
+          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('extensions/**/Cargo.lock') }}
+      - name: Build NSH nightly and select it for subsequent steps
+        run: |
+          scripts/setup-nightly.sh
+          echo "$PWD/.nsh/bin" >> "$GITHUB_PATH"
       - name: Rust tests and lint
         run: |
-          cargo test --locked
-          cargo clippy --all-targets --locked -- --deny warnings
-          cargo fmt --check
+          nsh check
+          cargo test --manifest-path extensions/disktree-native/Cargo.toml --locked
+          cargo clippy --manifest-path extensions/disktree-native/Cargo.toml --all-targets --locked -- --deny warnings
+          cargo fmt --manifest-path extensions/disktree-native/Cargo.toml --check
       - name: Installer and release manifest tests
         run: python3 -B -m unittest discover -s tests -p 'test_*.py' -v
       - name: Real Linux GUI update and rollback
@@ -66,5 +77,5 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+            extensions/disktree-native/target
+          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('extensions/**/Cargo.lock') }}

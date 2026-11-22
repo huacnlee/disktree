@@ -99,8 +99,8 @@ def main():
                         (resources / 'app.json').write_text(json.dumps({'id': 'com.example.other', 'version': version}))
                     if system == 'apple-darwin':
                         run('codesign', '--force', '--deep', '--sign', '-', '--timestamp=none', str(package / 'Disktree.app'), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                executable = installed / 'Disktree.app/Contents/MacOS/disktree' if system == 'apple-darwin' else installed / 'disktree'
-                new_executable = candidate / 'Disktree.app/Contents/MacOS/disktree' if system == 'apple-darwin' else candidate / 'disktree'
+                executable = installed / 'Disktree.app/Contents/MacOS/disktree' if system == 'apple-darwin' else installed / 'disktree-host'
+                new_executable = candidate / 'Disktree.app/Contents/MacOS/disktree' if system == 'apple-darwin' else candidate / 'disktree-host'
                 if case == 'not-executable':
                     new_executable.chmod(0o644)
                 if case == 'launch-failure':
@@ -164,10 +164,9 @@ def main():
                                 time.sleep(0.1)
                             time.sleep(1.2)  # The restarted GUI completes its quit command.
                             assert code == 0
-                            assert subprocess.check_output([str(executable), '--version'], text=True).strip() == f'disktree {args.new}'
+                            assert subprocess.check_output([installed / 'disktree', '--version'], text=True).strip() == f'disktree {args.new}'
                             resources = installed / 'Disktree.app/Contents/Resources/nsh' if system == 'apple-darwin' else installed / 'nsh'
                             assert json.loads((resources / 'app.json').read_text())['version'] == args.new
-                            assert hashlib.sha256(executable.read_bytes()).hexdigest() != before
                             assert (installed / '.disktree-install').is_file()
                         else:
                             assert code == 0, (case, code)

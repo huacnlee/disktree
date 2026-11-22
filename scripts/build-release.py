@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Build an installable, self-contained nsh app for the current platform."""
-import argparse, json, hashlib, os, platform, plistlib, shutil, subprocess, sys, tarfile
+import argparse, json, hashlib, os, platform, plistlib, shutil, subprocess, tarfile, tempfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
@@ -24,19 +24,27 @@ def main():
     build=ROOT/'.nsh/package'
     build.mkdir(parents=True,exist_ok=True)
     env={**os.environ,'DISKTREE_VERSION':version}
-    metadata=json.loads(subprocess.check_output(['cargo','metadata','--format-version','1','--locked'],cwd=ROOT,env=env,text=True))
-    cargo=Path(metadata['target_directory'])
-    run('cargo','build','--manifest-path',str(ROOT/'Cargo.toml'),'--release','--locked','--no-default-features',env=env)
+    config=json.loads((ROOT/'nsh.json').read_text())
     stage=build/f'disktree-{version}-{target}'
     if stage.exists():shutil.rmtree(stage)
-    stage.mkdir()
+    platform_name='macos' if system=='Darwin' else 'linux'
+    with tempfile.TemporaryDirectory(dir=build) as temporary:
+        output=Path(temporary)
+        run('nsh','package','--target',platform_name,'--name','disktree',
+            '--app-version',version,'--out',str(output),env=env)
+        if system=='Darwin':
+            stage.mkdir()
+            shutil.move(output/'disktree.app',stage/'Disktree.app')
+        else:
+            shutil.move(output/'disktree',stage)
     if system=='Darwin':
         app=stage/'Disktree.app/Contents'
-        (app/'MacOS').mkdir(parents=True)
-        resources=app/'Resources';resources.mkdir()
-        shutil.copy2(cargo/'release/disktree',app/'MacOS/disktree')
+        resources=app/'Resources'
+        with (app/'Info.plist').open('rb') as file:
+            info=plistlib.load(file)
+        info.update(CFBundleName='Disktree',CFBundleDisplayName='Disktree',CFBundleIconFile='AppIcon',CFBundleVersion=version)
         with (app/'Info.plist').open('wb') as file:
-            plistlib.dump(dict(CFBundleExecutable='disktree',CFBundleName='Disktree',CFBundleIconFile='AppIcon',CFBundleIdentifier='com.huacnlee.disktree',CFBundleShortVersionString=version,CFBundleVersion=version,CFBundlePackageType='APPL',LSMinimumSystemVersion='14.0',NSHighResolutionCapable=True),file)
+            plistlib.dump(info,file)
         run('sips','-s','format','png',str(ROOT/'assets/icon.svg'),'--out',str(build/'icon.png'))
         iconset=build/'AppIcon.iconset'
         if iconset.exists():shutil.rmtree(iconset)
@@ -46,8 +54,13 @@ def main():
                 name=f'icon_{size}x{size}'+('@2x' if scale==2 else '')+'.png'
                 run('sips','-z',str(size*scale),str(size*scale),str(build/'icon.png'),'--out',str(iconset/name))
         run('iconutil','-c','icns',str(iconset),'-o',str(resources/'AppIcon.icns'))
-        launcher=stage/'disktree'
-        launcher.write_text('''#!/bin/sh
+    else:
+        (stage/'disktree').rename(stage/'disktree-host')
+        resources=stage/'resources';resources.mkdir()
+        (stage/f"{config['id']}.desktop").unlink()
+        (stage/'disktree.desktop').write_text('[Desktop Entry]\nType=Application\nName=Disktree\nComment=Explore disk space with a native treemap\nExec=disktree\nTerminal=false\nCategories=System;Utility;\nIcon=disktree\n')
+    launcher=stage/'disktree'
+    launcher.write_text('''#!/bin/sh
 set -eu
 launcher=$0
 while [ -L "$launcher" ]; do
@@ -55,19 +68,31 @@ while [ -L "$launcher" ]; do
   case "$link" in /*) launcher=$link;; *) launcher=$(dirname "$launcher")/$link;; esac
 done
 root=$(CDPATH= cd -- "$(dirname -- "$launcher")" && pwd)
-exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
+if [ -d "$root/Disktree.app" ]; then
+  host="$root/Disktree.app/Contents/MacOS/disktree"
+  if [ "${1:-}" = --version ]; then
+    version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$root/Disktree.app/Contents/Info.plist")
+    echo "disktree $version"
+    exit 0
+  fi
+else
+  host="$root/disktree-host"
+  if [ "${1:-}" = --version ]; then
+    read -r version target < "$root/.disktree-install"
+    echo "disktree ${version#v}"
+    exit 0
+  fi
+fi
+exec "$host" "$@"
 ''')
-        launcher.chmod(0o755)
-    else:
-        resources=stage/'resources';resources.mkdir()
-        shutil.copy2(cargo/'release/disktree',stage/'disktree')
-        (stage/'disktree.desktop').write_text('[Desktop Entry]\nType=Application\nName=Disktree\nComment=Explore disk space with a native treemap\nExec=disktree\nTerminal=false\nCategories=System;Utility;\nIcon=disktree\n')
-    # Native Rust apps call nsh-updater directly. Keep the same package layout
-    # and configuration identity checks as NSH-generated hosts.
-    config=json.loads((ROOT/'nsh.json').read_text())
+    launcher.chmod(0o755)
     nsh=resources/'nsh' if system=='Darwin' else stage/'nsh'
+    if not (nsh/'bundle.nshc').is_file():
+        raise SystemExit('Packaged TSX bundle is missing')
+    metadata=json.loads((nsh/'app.json').read_text())
+    if metadata['id']!=config['id'] or metadata['version']!=version:
+        raise SystemExit('Packaged app identity or version differs from the release')
     (nsh/'assets').mkdir(parents=True,exist_ok=True)
-    (nsh/'app.json').write_text(json.dumps({'id':config['id'],'version':version}))
     updater={**config['updater'],'id':config['id'],'version':version}
     (nsh/'assets/nsh-updater.json').write_text(json.dumps(updater))
     (stage/'.disktree-install').write_text(f'v{version} {target}\n')
@@ -75,8 +100,9 @@ exec "$root/Disktree.app/Contents/MacOS/disktree" "$@"
     shutil.copy2(ROOT/'LICENSE',stage/'LICENSE')
     shutil.copy2(ROOT/'assets/LICENSE.nsh',stage/'LICENSE.nsh')
     if system=='Darwin':run('codesign','--force','--deep','--sign','-','--timestamp=none',str(stage/'Disktree.app'))
-    # Validate the CLI wrapper before archiving; smoke-package checks native scanning.
-    run(str(stage/'disktree'),'--version')
+    reported=subprocess.check_output([stage/'disktree','--version'],text=True).strip()
+    if reported!=f'disktree {version}':
+        raise SystemExit(f'Unexpected launcher version: {reported}')
     dist=ROOT/'.nsh/dist';dist.mkdir(exist_ok=True)
     installer_name,updater_name=archive_names(version,target)
     archive=dist/installer_name
