@@ -36,6 +36,10 @@ test("desktop shortcuts browse, mark and return to contents", async () => {
     height: 850,
     platform: "macos",
   });
+  expect(app.window("main").state()).toMatchObject({
+    visible: true,
+    minimized: false,
+  });
   await app.waitFor("label:Select Projects");
   for (const label of ["Files", "Apparent", "Disk size"]) {
     await app.press("label:" + label);

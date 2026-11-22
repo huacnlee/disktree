@@ -19,7 +19,7 @@ import { Input, Menu as OptionsMenu } from "nsh/base";
 import {
   Menu,
   isAvailable as desktopAvailable,
-  currentWindow,
+  Window,
   titleBar,
 } from "nsh/desktop";
 
@@ -53,16 +53,24 @@ import {
   mono,
 } from "./ui";
 export function App(props: { scanner: Scanner }) {
+  return (
+    <Window
+      id="main"
+      title="Disktree — Disk space explorer"
+      titleBar={{ style: "hidden", height: 56 }}
+      defaultSize={{ width: 1280, height: 850 }}
+    >
+      {() => <Explorer scanner={props.scanner} />}
+    </Window>
+  );
+}
+
+function Explorer(props: { scanner: Scanner }) {
   const { scanner } = props;
   let activeScan: string | undefined;
   cleanup(() => {
     if (activeScan) void scanner.cancelScan(activeScan).catch(() => {});
   });
-  if (desktopAvailable)
-    currentWindow().set({
-      title: "Disktree — Disk space explorer",
-      titleBar: { style: "hidden", height: 56 },
-    });
   const snapshot = signal<Snapshot | null>(null);
   const current = signal<DiskNode | null>(null);
   const selection = signal<DiskNode | null>(null);
