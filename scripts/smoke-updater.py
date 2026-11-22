@@ -69,8 +69,8 @@ def main():
         url = f'http://127.0.0.1:{server.server_port}/latest.json'
         try:
             cases = ['success', 'auto-success', 'bad-signature', 'bad-size', 'bad-hash', 'wrong-app', 'not-executable', 'read-only']
-            if system != 'apple-darwin':
-                cases.append('launch-failure')
+            # No 'launch-failure' case: nsh/updater installs without first
+            # launching the new executable, so there is no rollback to test.
             if os.geteuid() == 0:
                 cases.remove('read-only')
             if args.case:
@@ -103,9 +103,6 @@ def main():
                 new_executable = candidate / 'Disktree.app/Contents/MacOS/disktree' if system == 'apple-darwin' else candidate / 'disktree-host'
                 if case == 'not-executable':
                     new_executable.chmod(0o644)
-                if case == 'launch-failure':
-                    new_executable.write_bytes(b'not an executable format')
-                    new_executable.chmod(0o755)
                 archive = serving / 'update.tar.gz'
                 with tarfile.open(archive, 'w:gz') as tar:
                     source = candidate / 'Disktree.app' if system == 'apple-darwin' else candidate
@@ -173,7 +170,7 @@ def main():
                             assert hashlib.sha256(executable.read_bytes()).hexdigest() == before
                             expected = {'bad-signature': 'signature', 'bad-size': 'bytes', 'bad-hash': 'SHA-256',
                                         'wrong-app': 'com.example.other', 'not-executable': 'not executable',
-                                        'read-only': 'Download the update', 'launch-failure': 'Exec format error'}[case]
+                                        'read-only': 'Download the update'}[case]
                             assert any(event['outcome'] == 'failed' and expected in event['message'] for event in outcomes()), outcomes()
                         if case not in ('success', 'auto-success'):
                             retry_environment = dict(environment, DISKTREE_UI_SCRIPT='wait 1000; quit')

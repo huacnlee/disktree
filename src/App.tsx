@@ -303,7 +303,23 @@ function Explorer(props: { scanner: Scanner }) {
     void loop.start();
     cleanup(() => loop.stop());
   });
-  /** Commands for unattended smoke tests: `wait <ms>`, `key mod+r`, `quit`. */
+  /** Runs the update flow unattended and records how it ended; a successful install restarts the app. */
+  async function smokeUpdate() {
+    const record = (outcome: "current" | "failed", text: string) =>
+      scanner.recordSmoke?.(outcome, text).catch(() => {});
+    try {
+      const update = await updater.checkForUpdate();
+      if (!update) return record("current", "Disktree is up to date.");
+      if (!update.canInstall)
+        return record("failed", `Download the update from ${update.url}`);
+      await updater.downloadUpdate();
+      await updater.installAndRestart();
+      await record("failed", "The update did not restart Disktree");
+    } catch (error) {
+      await record("failed", String(error));
+    }
+  }
+  /** Commands for unattended smoke tests: `wait <ms>`, `key mod+r`, `update`, `update-auto`, `quit`. */
   async function runScript() {
     const script = (await scanner.uiScript?.().catch(() => "")) ?? "";
     const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -313,6 +329,8 @@ function Explorer(props: { scanner: Scanner }) {
       else if (name === "key" && (arg === "mod+r" || arg === "cmd+r")) {
         while (busy()) await sleep(50);
         void scan();
+      } else if (name === "update" || name === "update-auto") {
+        await smokeUpdate();
       } else if (name === "quit") {
         Application.quit();
         return;

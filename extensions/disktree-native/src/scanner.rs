@@ -145,6 +145,37 @@ fn home() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/"))
 }
+/// The packaged app's version, from the `app.json` beside the executable.
+fn packaged_version() -> String {
+    let read = || -> Option<String> {
+        let exe = std::env::current_exe().ok()?;
+        let dir = exe.parent()?;
+        [dir.join("nsh/app.json"), dir.join("../Resources/nsh/app.json")]
+            .iter()
+            .find_map(|path| {
+                let app: Value = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
+                Some(app["version"].as_str()?.to_string())
+            })
+    };
+    read().unwrap_or_default()
+}
+/// Appends `{outcome, message, pid, version}` to `<state>.updater.jsonl`.
+pub(crate) fn record_smoke(data: &Value) -> Result<()> {
+    use std::io::Write;
+    let line = serde_json::json!({
+        "outcome": data["outcome"].as_str().unwrap_or("failed"),
+        "message": data["message"].as_str().unwrap_or(""),
+        "pid": std::process::id(),
+        "version": packaged_version(),
+    });
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(state_file().with_extension("updater.jsonl"))
+        .map_err(io)?;
+    writeln!(file, "{line}").map_err(io)?;
+    file.sync_all().map_err(io)
+}
 pub(crate) fn state_file() -> PathBuf {
     if let Some(path) = std::env::var_os("DISKTREE_STATE") {
         return path.into();

@@ -23,6 +23,8 @@ impl DiskTree {
                 let script = std::env::var("DISKTREE_UI_SCRIPT").unwrap_or_default();
                 return Ok(Value::String(script).to_string());
             }
+            // Records an update smoke outcome where scripts/smoke-updater.py reads it.
+            "/smoke" => return scanner::record_smoke(&data).map(|()| "null".into()),
             "/cancel" | "/progress" | "/scan-progress" => {
                 return scanner::dispatch(&route, &data).map(|result| result.to_string());
             }

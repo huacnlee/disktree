@@ -248,4 +248,6 @@ export interface Scanner {
   removalProgress(progressToken: string): Promise<RemovalProgress | null>;
   /** The unattended smoke-test script from `DISKTREE_UI_SCRIPT`, or "". */
   uiScript?(): Promise<string>;
+  /** Records an `update` script outcome for scripts/smoke-updater.py. */
+  recordSmoke?(outcome: "current" | "failed", message: string): Promise<void>;
 }
