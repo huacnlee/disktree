@@ -145,6 +145,24 @@ fn home() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/"))
 }
+/// Appends one updater outcome next to the state file; only smoke scripts call this.
+pub(crate) fn record_smoke(data: &Value) -> std::result::Result<(), String> {
+    use std::io::Write;
+    let path = state_file().with_extension("updater.jsonl");
+    let line = serde_json::json!({
+        "outcome": data["outcome"], "message": data["message"],
+        "version": data["version"], "pid": std::process::id(),
+    });
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    writeln!(file, "{line}")
+        .and_then(|()| file.sync_all())
+        .map_err(|error| error.to_string())
+}
+
 pub(crate) fn state_file() -> PathBuf {
     if let Some(path) = std::env::var_os("DISKTREE_STATE") {
         return path.into();

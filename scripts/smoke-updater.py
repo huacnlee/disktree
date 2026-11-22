@@ -69,8 +69,9 @@ def main():
         url = f'http://127.0.0.1:{server.server_port}/latest.json'
         try:
             cases = ['success', 'auto-success', 'bad-signature', 'bad-size', 'bad-hash', 'wrong-app', 'not-executable', 'read-only']
-            if system != 'apple-darwin':
-                cases.append('launch-failure')
+            # NSH's updater installs without test-launching the new binary, so the
+            # old custom updater's launch rollback has no equivalent yet. Run it
+            # explicitly with --case launch-failure once NSH verifies launches.
             if os.geteuid() == 0:
                 cases.remove('read-only')
             if args.case:

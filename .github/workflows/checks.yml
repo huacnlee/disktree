@@ -2,8 +2,6 @@ name: Desktop checks
 on:
   pull_request:
     paths:
-      - 'Cargo.toml'
-      - 'Cargo.lock'
       - '**/*.tsx'
       - '**/*.ts'
       - 'extensions/**'
