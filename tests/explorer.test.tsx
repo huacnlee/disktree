@@ -84,6 +84,12 @@ test("startup checks silently and the update menu opens the prompt on demand", a
           calls.push("check");
           return { version: "0.2.0" };
         },
+        downloadUpdate: () => {
+          calls.push("download");
+        },
+        installAndRestart: () => {
+          calls.push("install");
+        },
         promptForUpdate: () => {
           calls.push("prompt");
         },
@@ -94,6 +100,8 @@ test("startup checks silently and the update menu opens the prompt on demand", a
   expect(calls).toEqual(["check"]);
   await app.press("label:View options");
   await app.press("label:Check for updates…");
-  await app.waitUntil(() => calls.length === 2);
-  expect(calls).toEqual(["check", "prompt"]);
+  await app.waitUntil(() => calls.length >= 2 && calls.at(-1) !== "check" && calls.at(-1) !== "download");
+  // Released NSH 0.6.x runners have no built-in prompt: Disktree downloads and installs itself.
+  if (calls[1] === "prompt") expect(calls).toEqual(["check", "prompt"]);
+  else expect(calls).toEqual(["check", "check", "download", "install"]);
 });

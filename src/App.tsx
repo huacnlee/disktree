@@ -20,10 +20,12 @@ import {
   Menu,
   isAvailable as desktopAvailable,
   Window,
+  currentWindow,
   titleBar,
 } from "nsh/desktop";
 
-import { checkForUpdate, promptForUpdate } from "nsh/updater";
+import * as updater from "nsh/updater";
+import { Application } from "nsh/desktop";
 import { collapseBreadcrumbs } from "./breadcrumbs";
 import {
   type Scanner,
@@ -52,7 +54,20 @@ import {
   AccentBorder,
   mono,
 } from "./ui";
+// Runners built from released NSH 0.6.x (a TSX app with a Rust nshm) still
+// open the main window themselves (window model v1) and predate the built-in
+// update prompt, which landed together with model v2 on main.
+const legacyRuntime = typeof updater.promptForUpdate !== "function";
+
 export function App(props: { scanner: Scanner }) {
+  if (legacyRuntime) {
+    if (desktopAvailable)
+      currentWindow().set({
+        title: "Disktree — Disk space explorer",
+        titleBar: { style: "hidden", height: 56 },
+      });
+    return <Explorer scanner={props.scanner} />;
+  }
   return (
     <Window
       id="main"
@@ -152,11 +167,22 @@ function Explorer(props: { scanner: Scanner }) {
       if (stopScanProgress === stop) stopScanProgress = undefined;
     }
   }
+    async function promptUpdate() {
+    if (!legacyRuntime) return updater.promptForUpdate();
+    const update = await updater.checkForUpdate();
+    if (!update) {
+      message.set("Disktree is up to date.");
+      return;
+    }
+    message.set(`Downloading Disktree ${update.version}…`);
+    await updater.downloadUpdate();
+    await updater.installAndRestart();
+  }
   let scanSequence = 0;
   const message = signal("Choose a folder to discover what fills your disk.");
   const updateAvailable = signal(false);
   function showUpdates() {
-    void promptForUpdate().catch((error) => message.set(String(error)));
+    void promptUpdate().catch((error) => message.set(String(error)));
   }
   const hidden = signal(true);
   const metric = signal<Metric>("size");
@@ -277,6 +303,22 @@ function Explorer(props: { scanner: Scanner }) {
     void loop.start();
     cleanup(() => loop.stop());
   });
+  /** Commands for unattended smoke tests: `wait <ms>`, `key mod+r`, `quit`. */
+  async function runScript() {
+    const script = (await scanner.uiScript?.().catch(() => "")) ?? "";
+    const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
+    for (const command of script.split(";").map((c) => c.trim()).filter(Boolean)) {
+      const [name, arg] = command.split(/\s+/);
+      if (name === "wait") await sleep(Number(arg) || 0);
+      else if (name === "key" && (arg === "mod+r" || arg === "cmd+r")) {
+        while (busy()) await sleep(50);
+        void scan();
+      } else if (name === "quit") {
+        Application.quit();
+        return;
+      } else console.warn(`Unknown DISKTREE_UI_SCRIPT command: ${command}`);
+    }
+  }
   let generation = 0;
   async function scan(target = path()) {
     if (busy()) return;
@@ -655,7 +697,9 @@ function Explorer(props: { scanner: Scanner }) {
   );
   // Start the request during initialization so the first frame is already scanning.
   void scan();
-  void checkForUpdate()
+  void runScript();
+  void updater
+    .checkForUpdate()
     .then((update) => {
       updateAvailable.set(!!update);
     })

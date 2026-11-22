@@ -246,4 +246,6 @@ export interface Scanner {
     progressToken: string,
   ): Promise<RemovalResult>;
   removalProgress(progressToken: string): Promise<RemovalProgress | null>;
+  /** The unattended smoke-test script from `DISKTREE_UI_SCRIPT`, or "". */
+  uiScript?(): Promise<string>;
 }

@@ -18,6 +18,11 @@ impl DiskTree {
                 let progress = scanner::begin_scan(&data)?;
                 blocking(move || scanner::run_scan(&data, progress)).await
             }
+            // Unattended smoke tests drive the packaged app through this script.
+            "/ui-script" => {
+                let script = std::env::var("DISKTREE_UI_SCRIPT").unwrap_or_default();
+                return Ok(Value::String(script).to_string());
+            }
             "/cancel" | "/progress" | "/scan-progress" => {
                 return scanner::dispatch(&route, &data).map(|result| result.to_string());
             }

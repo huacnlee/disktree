@@ -4,9 +4,12 @@
   "version": "0.1.8",
   "build": 6,
   "appearance": "dark",
-  "rust": ".",
-  "root": "App",
   "updater": {
     "github": "huacnlee/disktree"
+  },
+  "dependencies": {
+    "disktree-native": {
+      "path": "extensions/disktree-native"
+    }
   }
 }
