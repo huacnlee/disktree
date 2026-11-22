@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "packages": [
+    {
+      "name": "disktree-native",
+      "version": "0.1.0",
+      "path": "extensions/disktree-native",
+      "module": "disktree-native"
+    }
+  ]
+}

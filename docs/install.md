@@ -90,7 +90,7 @@ On Linux, install the GTK 4 and GStreamer development libraries, for example on
 Ubuntu 24.04:
 
 ```sh
-sudo apt install clang libclang-dev libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+sudo apt install clang libclang-dev libgtk-4-dev libwebkitgtk-6.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 ```
 
 Clone the repository and run the app:
@@ -98,10 +98,12 @@ Clone the repository and run the app:
 ```sh
 git clone https://github.com/huacnlee/disktree.git
 cd disktree
-cargo run --release --locked
+scripts/setup-nightly.sh
+export PATH="$PWD/.nsh/bin:$PATH"
+nsh run
 ```
 
-The release binary is written to `target/release/disktree`. To build the same
+To build the same
 self-contained archives as a release (requires Python 3.11+), see
 [Development](../README.md#development).
 

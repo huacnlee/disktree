@@ -64,12 +64,8 @@ The last directory is saved in `~/Library/Application Support/Disktree/state.jso
 
 ## Project layout
 
-- `src/ui.rs`: Rust components and native gestures.
-- `src/state.rs`: application state and background requests.
-- `src/model.rs`: classification and bounded treemap layout.
-- `src/scanner.rs`: scanning, directory queries, persistence, and cleanup.
-- `src/main.rs`: standalone desktop launcher.
-- `tests/ui.rs`: production Rust UI integration test.
+- `App.tsx`: TSX application entry.
+- `extensions/disktree-native/`: local Rust nshm and scanner tests.
 - `scripts/`: existing release packaging and smoke checks.
 - `website/`: the [project website](https://huacnlee.github.io/disktree/), which also serves `install.sh`. See [website/README.md](website/README.md).
 
@@ -77,41 +73,21 @@ Updater-enabled releases check for updates quietly on launch. Use **Update avail
 
 ## Development
 
-The application is entirely Rust, using nsh's Rust component API. `nsh.json`
-selects the exported `App` component. There are no TSX sources, JavaScript
-bundles, or QuickJS dependencies in the application. Scanning runs on background
-threads; gestures and finite treemap transitions run on the native platform.
+Install the NSH nightly CLI and Rust toolchain to build the TSX application and its local native scanner extension.
 
 ```sh
+scripts/setup-nightly.sh
+export PATH="$PWD/.nsh/bin:$PATH"
+nsh --version
 nsh dev
 ```
 
-`nsh run` also works, and without the nsh CLI you can use `cargo run --locked`.
-
-Both CLI commands default to the current desktop system. NSH-generated files live
-under `.nsh/`: test fixtures in `.nsh/test-data`, packaging in `.nsh/package`,
-and archives in `.nsh/dist`. Cargo keeps its normal `target/` directory and
-respects your existing environment; no Cargo configuration is added.
-
-NSH dependencies are
-pinned by `Cargo.lock`. Rust source changes rebuild the native host. The direct
-macOS launcher preserves Disktree's application identity when launched from a terminal.
-
-Build a self-contained release with Rust, Python 3.11+ (existing packaging tools
-only), and Xcode Command Line Tools on macOS, or GTK 4 and GStreamer (core and base
-plug-ins) development libraries on Linux:
+Build an installer and updater archive for the current platform with Python 3.11+ and Xcode Command Line Tools on macOS or GTK 4 and GStreamer development libraries on Linux. The archives are written to `.nsh/dist/`.
 
 ```sh
-python3 scripts/build-release.py --version 0.1.2
-```
-
-Packaging builds the Rust executable directly and writes archives to `.nsh/dist/`.
-It does not compile or ship a JS bundle.
-
-```sh
-cargo test --locked
-cargo test --lib --release --locked -- --ignored --test-threads=1
-cargo clippy --all-targets --locked
+python3 scripts/build-release.py --version 0.1.8
+nsh check
+cargo test --manifest-path extensions/disktree-native/Cargo.toml --locked
 python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
@@ -174,9 +150,9 @@ RSS is resident process memory, not macOS Activity Monitor's memory footprint. P
 The existing scanner-only benchmark, also run in release mode, scanned 16,384 empty files and 65 directories in **7.24 ms with four readers**, versus **16.93 ms with one reader** (2.34× speedup). These are medians of three timed iterations after one warm-up per configuration, excluding fixture creation and GUI startup. Reproduce the scanner benchmark with:
 
 ```sh
-cargo test --release --no-default-features --locked --lib scan_benchmark -- --ignored --nocapture
+cargo test --manifest-path extensions/disktree-native/Cargo.toml --release --locked --lib scan_benchmark -- --ignored --nocapture
 # Optional: benchmark an existing directory instead of the generated fixture.
-# DISKTREE_BENCH_ROOT=/path/to/tree cargo test --release --no-default-features --locked --lib scan_benchmark -- --ignored --nocapture
+# DISKTREE_BENCH_ROOT=/path/to/tree cargo test --manifest-path extensions/disktree-native/Cargo.toml --release --locked --lib scan_benchmark -- --ignored --nocapture
 ```
 
 ### Large-tree observation
@@ -197,7 +173,7 @@ A deterministic release benchmark builds the real native index with 131,072 file
 This measures retained native heap, not process RSS or physical footprint; the reduction cannot be applied directly to the multi-million-entry session above. A regression gate requires this fixture to stay below 80 MiB. Run it alone so other test allocations cannot affect the measurement:
 
 ```sh
-cargo test --release --no-default-features --locked --lib scanner::tests::long_path_index_memory_budget -- --ignored --exact --nocapture
+cargo test --manifest-path extensions/disktree-native/Cargo.toml --release --locked --lib scanner::tests::long_path_index_memory_budget -- --ignored --exact --nocapture
 ```
 
 The existing scan benchmark after the change measured 9.00 ms with four readers and 18.57 ms with one reader (2.06×). These local timings vary with filesystem state and other activity.

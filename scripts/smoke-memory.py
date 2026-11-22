@@ -1,8 +1,8 @@
 """Measure the actual macOS window, scan, and idle period against a memory budget.
 
 Build first, then run:
-  python3 scripts/smoke-memory.py --root "$HOME" --budget-mb 150
-  python3 scripts/smoke-memory.py --root "$HOME" --rescan-after 35 --timeout 180
+  python3 scripts/smoke-memory.py --binary .nsh/package/disktree-*/disktree --root "$HOME" --budget-mb 150
+  python3 scripts/smoke-memory.py --binary .nsh/package/disktree-*/disktree --root "$HOME" --rescan-after 35 --timeout 180
 Uses isolated preferences; stops only the process it launched.
 """
 import argparse
@@ -19,7 +19,7 @@ import time
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
-    parser.add_argument('--binary', type=Path, default=Path(__file__).resolve().parents[1] / 'target/release/disktree')
+    parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--budget-mb', type=float, default=150)
     parser.add_argument('--timeout', type=float, default=120)
     parser.add_argument('--idle-seconds', type=float, default=8)

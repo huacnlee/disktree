@@ -1199,3 +1199,16 @@ fn solid_state_detection_answers_for_any_path() {
     assert_eq!(media::solid_state(&f.0), first);
     assert!(!media::solid_state(Path::new("/definitely/missing/path")));
 }
+
+#[test]
+fn cancelled_scan_cannot_replace_or_clear_its_successor() {
+    let first = json!({"progressToken":"first"});
+    let second = json!({"progressToken":"second"});
+    let cancelled = begin_scan(&first).unwrap();
+    assert_eq!(dispatch("/cancel", &second).unwrap(), false);
+    assert_eq!(dispatch("/cancel", &first).unwrap(), true);
+    let successor = begin_scan(&second).unwrap();
+    assert_eq!(run_scan(&first, cancelled).unwrap_err(), "Scan cancelled");
+    assert_eq!(dispatch("/cancel", &second).unwrap(), true);
+    assert_eq!(run_scan(&second, successor).unwrap_err(), "Scan cancelled");
+}
