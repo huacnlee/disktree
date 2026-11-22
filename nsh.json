@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "disktree-native": {
-      "path": "extensions/disktree-native"
+      "path": "ext/disktree-native"
     }
   }
 }

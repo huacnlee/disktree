@@ -65,7 +65,7 @@ The last directory is saved in `~/Library/Application Support/Disktree/state.jso
 ## Project layout
 
 - `App.tsx`: TSX application entry.
-- `extensions/disktree-native/`: local Rust nshm and scanner tests.
+- `ext/disktree-native/`: local Rust nshm and scanner tests.
 - `scripts/`: existing release packaging and smoke checks.
 - `website/`: the [project website](https://huacnlee.github.io/disktree/), which also serves `install.sh`. See [website/README.md](website/README.md).
 
@@ -87,7 +87,7 @@ Build an installer and updater archive for the current platform with Python 3.11
 ```sh
 python3 scripts/build-release.py --version 0.1.8
 nsh check
-cargo test --manifest-path extensions/disktree-native/Cargo.toml --locked
+cargo test --manifest-path ext/disktree-native/Cargo.toml --locked
 python3 -B -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
@@ -150,9 +150,9 @@ RSS is resident process memory, not macOS Activity Monitor's memory footprint. P
 The existing scanner-only benchmark, also run in release mode, scanned 16,384 empty files and 65 directories in **7.24 ms with four readers**, versus **16.93 ms with one reader** (2.34× speedup). These are medians of three timed iterations after one warm-up per configuration, excluding fixture creation and GUI startup. Reproduce the scanner benchmark with:
 
 ```sh
-cargo test --manifest-path extensions/disktree-native/Cargo.toml --release --locked --lib scan_benchmark -- --ignored --nocapture
+cargo test --manifest-path ext/disktree-native/Cargo.toml --release --locked --lib scan_benchmark -- --ignored --nocapture
 # Optional: benchmark an existing directory instead of the generated fixture.
-# DISKTREE_BENCH_ROOT=/path/to/tree cargo test --manifest-path extensions/disktree-native/Cargo.toml --release --locked --lib scan_benchmark -- --ignored --nocapture
+# DISKTREE_BENCH_ROOT=/path/to/tree cargo test --manifest-path ext/disktree-native/Cargo.toml --release --locked --lib scan_benchmark -- --ignored --nocapture
 ```
 
 ### Large-tree observation
@@ -173,7 +173,7 @@ A deterministic release benchmark builds the real native index with 131,072 file
 This measures retained native heap, not process RSS or physical footprint; the reduction cannot be applied directly to the multi-million-entry session above. A regression gate requires this fixture to stay below 80 MiB. Run it alone so other test allocations cannot affect the measurement:
 
 ```sh
-cargo test --manifest-path extensions/disktree-native/Cargo.toml --release --locked --lib scanner::tests::long_path_index_memory_budget -- --ignored --exact --nocapture
+cargo test --manifest-path ext/disktree-native/Cargo.toml --release --locked --lib scanner::tests::long_path_index_memory_budget -- --ignored --exact --nocapture
 ```
 
 The existing scan benchmark after the change measured 9.00 ms with four readers and 18.57 ms with one reader (2.06×). These local timings vary with filesystem state and other activity.

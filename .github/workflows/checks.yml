@@ -4,7 +4,7 @@ on:
     paths:
       - '**/*.tsx'
       - '**/*.ts'
-      - 'extensions/**'
+      - 'ext/**'
       - 'assets/**'
       - 'src/**'
       - 'scripts/**'
@@ -48,8 +48,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            extensions/disktree-native/target
-          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('extensions/**/Cargo.lock') }}
+            ext/disktree-native/target
+          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ext/**/Cargo.lock') }}
       - name: Build NSH nightly and select it for subsequent steps
         run: |
           scripts/setup-nightly.sh
@@ -57,9 +57,9 @@ jobs:
       - name: Rust tests and lint
         run: |
           nsh check
-          cargo test --manifest-path extensions/disktree-native/Cargo.toml --locked
-          cargo clippy --manifest-path extensions/disktree-native/Cargo.toml --all-targets --locked -- --deny warnings
-          cargo fmt --manifest-path extensions/disktree-native/Cargo.toml --check
+          cargo test --manifest-path ext/disktree-native/Cargo.toml --locked
+          cargo clippy --manifest-path ext/disktree-native/Cargo.toml --all-targets --locked -- --deny warnings
+          cargo fmt --manifest-path ext/disktree-native/Cargo.toml --check
       - name: Installer and release manifest tests
         run: python3 -B -m unittest discover -s tests -p 'test_*.py' -v
       - name: Real Linux GUI update and rollback
@@ -75,5 +75,5 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            extensions/disktree-native/target
-          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('extensions/**/Cargo.lock') }}
+            ext/disktree-native/target
+          key: desktop-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ext/**/Cargo.lock') }}
