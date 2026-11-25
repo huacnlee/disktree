@@ -9,18 +9,18 @@
     },
     {
       "name": "nsh-icon",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "source": "crates.io",
-      "checksum": "sha256-23415dda67494164ae3d1a299ef9c527e68f8d48b19d5f72969b65b1b6fe8468",
-      "dir": "nsh-icon/0.2.1",
+      "checksum": "sha256-638773b01e553407287797cc85f42a697ae9f86e5189746a784d18c5eaab37ac",
+      "dir": "nsh-icon/0.2.2",
       "module": "nsh-icon"
     },
     {
       "name": "nsh-icon-tabler",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "source": "crates.io",
-      "checksum": "sha256-2601801d4c10eecab8bfcc1e32375dcf7b15c8e5332290cc8d6866570e67e9bd",
-      "dir": "nsh-icon-tabler/0.2.1",
+      "checksum": "sha256-da5cd0fd9f4d6e61ef404131a0aa2ff495ac15b07bad197006f9234ffbb72773",
+      "dir": "nsh-icon-tabler/0.2.2",
       "module": "nsh-icon-tabler/native",
       "exports": {
         "nsh-icon-tabler": "tsx/index.ts"
