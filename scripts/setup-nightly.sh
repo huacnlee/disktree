@@ -2,7 +2,7 @@
 # Build the CLI in its checkout so nshm-only apps link the same nightly crates.
 set -eu
 cd "$(dirname "$0")/.."
-revision=f67b502786c126a9c327de34635596176d17882f
+revision=7d701ea67e3d523094f681d453b73b5f7d87a5c8
 source_dir="$PWD/.nsh/toolchain/$revision"
 if [ ! -d "$source_dir/.git" ]; then
   git init -q "$source_dir"

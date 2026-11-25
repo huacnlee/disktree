@@ -7,9 +7,17 @@ import {
   createAnimatedValue,
   platform,
   reduceMotion,
-  Path2D,
   Canvas,
 } from "nsh";
+import { Icon } from "nsh-icon";
+import {
+  AdjustmentsHorizontal,
+  ArrowUpRight,
+  Check,
+  FolderUp,
+  Pencil,
+  Refresh,
+} from "nsh-icon-tabler";
 import { formatSize, tileColor, type Tile } from "./disk";
 
 export const mono = platform.os === "macos" ? "Menlo" : "monospace";
@@ -88,8 +96,19 @@ export function Option(p: {
     </MenuItem>
   );
 }
+const buttonIcons = {
+  scan: Refresh,
+  parent: FolderUp,
+  options: AdjustmentsHorizontal,
+  edit: Pencil,
+};
+/** A text-color class for an icon, which takes its color from the text color. */
+export const iconTint = (color: string) => `text-[${color}]`;
 export function Button(p: {
   label: string;
+  /** Icons drawn before and after the label of a text button. */
+  leading?: string;
+  trailing?: string;
   action?: () => void;
   active?: boolean;
   disabled?: boolean;
@@ -98,6 +117,8 @@ export function Button(p: {
   accessibilityLabel?: string;
 }) {
   const press = createAnimatedValue(1);
+  const labelColor = () =>
+    p.danger ? "#ffc6bd" : p.active ? "#fff" : palette.text;
   const set = (v: number) => {
     if (reduceMotion()) press.set(v);
     else void press.spring(v, { stiffness: 420, damping: 24 });
@@ -147,37 +168,43 @@ export function Button(p: {
       }}
     >
       <If when={!!p.icon}>
-        <Canvas
-          style={{ pointerEvents: "none", width: 16, height: 16 }}
-          draw={(ctx) => {
-            const paths = {
-              scan: "M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4",
-              parent:
-                "M12 19H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v3.5M19 22v-6M22 19l-3-3-3 3",
-              options:
-                "M14 6a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 6h10M18 6h2M4 12a2 2 0 1 0 4 0a2 2 0 1 0-4 0M8 12h12M11 18a2 2 0 1 0 4 0a2 2 0 1 0-4 0M4 18h7M15 18h5",
-              edit: "M4 20h4L18.5 9.5a2.828 2.828 0 1 0-4-4L4 16v4M13.5 6.5l4 4",
-            };
-            ctx.scale(16 / 24, 16 / 24);
-            ctx.strokeStyle = p.icon === "scan" ? palette.amber : "#c4c4cc";
-            ctx.lineWidth = 1.75;
-            ctx.lineCap = "round";
-            ctx.lineJoin = "round";
-            ctx.stroke(new Path2D(paths[p.icon!]));
-          }}
+        <Icon
+          icon={buttonIcons[p.icon!]}
+          strokeWidth={1.75}
+          style={{ pointerEvents: "none" }}
+          class={iconTint(p.icon === "scan" ? palette.amber : "#c4c4cc")}
         />
       </If>
       <If when={!p.icon}>
-        <Text
+        <View
           style={{
-            fontFamily: mono,
-            fontSize: 12,
-            fontWeight: "600",
-            color: p.danger ? "#ffc6bd" : p.active ? "#fff" : palette.text,
+            pointerEvents: "none",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
           }}
         >
-          {p.label}
-        </Text>
+          <If when={!!p.leading}>
+            <Icon icon={p.leading!} size={14} class={iconTint(labelColor())} />
+          </If>
+          <Text
+            style={{
+              fontFamily: mono,
+              fontSize: 12,
+              fontWeight: "600",
+              color: labelColor(),
+            }}
+          >
+            {p.label}
+          </Text>
+          <If when={!!p.trailing}>
+            <Icon
+              icon={p.trailing!}
+              size={14}
+              class={iconTint(labelColor())}
+            />
+          </If>
+        </View>
       </If>
     </View>
   );
@@ -267,8 +294,12 @@ export function MapTile(p: {
             borderRadius: 3 / p.zoom,
             backgroundColor: "#ffd36c",
             opacity: 1,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 3 / p.zoom,
           }}
         >
+          <Icon icon={Check} size={9 / p.zoom} class={iconTint("#382305")} />
           <Text
             style={{
               fontFamily: mono,
@@ -277,12 +308,15 @@ export function MapTile(p: {
               color: "#382305",
             }}
           >
-            ✓ MARKED
+            MARKED
           </Text>
         </View>
       </If>
       <If when={p.tile.width * p.zoom > 70 && p.tile.height * p.zoom > 26}>
         <View style={{ flexDirection: "row", gap: 5, alignItems: "center" }}>
+          <If when={p.marked}>
+            <Icon icon={Check} size={11 / p.zoom} class={iconTint(ink())} />
+          </If>
           <Text
             style={{
               numberOfLines: 1,
@@ -293,16 +327,21 @@ export function MapTile(p: {
               color: ink(),
             }}
           >
-            {p.marked ? "✓ " : ""}
             {p.tile.node.name}
           </Text>
           <If when={p.tile.node.directory && p.tile.width * p.zoom > 140}>
-            <Text
+            <View
+              role="button"
+              accessibilityLabel={`Open ${p.tile.node.name}`}
               onPress={p.open}
-              style={{ fontFamily: mono, fontSize: 13 / p.zoom, color: ink() }}
+              style={{ cursor: "pointer" }}
             >
-              ↗
-            </Text>
+              <Icon
+                icon={ArrowUpRight}
+                size={13 / p.zoom}
+                class={iconTint(ink())}
+              />
+            </View>
           </If>
         </View>
       </If>
