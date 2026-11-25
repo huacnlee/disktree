@@ -14,13 +14,13 @@ test("browse, filter, and review removals before applying them", async () => {
   await app.press("label:Back to explorer");
   await app.press("label:Select notes.pdf");
   await app.press("label:Mark");
-  await app.press("label:Review marked items →");
+  await app.press("label:Review marked items");
   await app.press("label:Delete permanently");
   await app.waitFor("label:Confirm permanent deletion");
   await app.press("label:Back to explorer");
   await app.press("label:Back to contents");
   await app.waitFor("label:Select notes.pdf");
-  await app.press("label:Review marked items →");
+  await app.press("label:Review marked items");
   await app.press("label:Delete permanently");
   await app.press("label:Confirm permanent deletion");
   await app.waitFor("label:Select recording.mov");

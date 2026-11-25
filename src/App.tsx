@@ -52,8 +52,16 @@ import {
   MetricControl,
   AppMark,
   AccentBorder,
+  iconTint,
   mono,
 } from "./ui";
+import { Icon } from "nsh-icon";
+import {
+  ArrowRight,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+} from "nsh-icon-tabler";
 // Runners built from released NSH 0.6.x (a TSX app with a Rust nshm) still
 // open the main window themselves (window model v1) and predate the built-in
 // update prompt, which landed together with model v2 on main.
@@ -910,16 +918,12 @@ function Explorer(props: { scanner: Scanner }) {
                     </Text>
                   </View>
                   <If when={collapsedCrumbs().hidden.length > 0}>
-                    <Text
-                      style={{
-                        pointerEvents: "none",
-                        fontFamily: mono,
-                        fontSize: 12,
-                        color: C.muted,
-                      }}
-                    >
-                      ›
-                    </Text>
+                    <Icon
+                      icon={ChevronRight}
+                      size={12}
+                      style={{ pointerEvents: "none", flexShrink: 0 }}
+                      class={iconTint(C.muted)}
+                    />
                     <View
                       ref={(node) => {
                         breadcrumbOverflow = node;
@@ -960,17 +964,12 @@ function Explorer(props: { scanner: Scanner }) {
                           minWidth: 0,
                         }}
                       >
-                        <Text
-                          style={{
-                            pointerEvents: "none",
-                            fontFamily: mono,
-                            fontSize: 12,
-                            color: C.muted,
-                            flexShrink: 0,
-                          }}
-                        >
-                          ›
-                        </Text>
+                        <Icon
+                          icon={ChevronRight}
+                          size={12}
+                          style={{ pointerEvents: "none", flexShrink: 0 }}
+                          class={iconTint(C.muted)}
+                        />
                         <View
                           desktop={{ windowDrag: false }}
                           role="button"
@@ -1503,14 +1502,16 @@ function Explorer(props: { scanner: Scanner }) {
                     }}
                   >
                     <Button
-                      label="‹ Previous"
+                      label="Previous"
+                      leading={ChevronLeft}
                       disabled={page() === 0 || browseBusy()}
                       action={() =>
                         changePage(page() - (listing()?.pageSize || 80))
                       }
                     />
                     <Button
-                      label="Next ›"
+                      label="Next"
+                      trailing={ChevronRight}
                       disabled={
                         browseBusy() ||
                         (listing()?.offset || 0) +
@@ -1566,6 +1567,26 @@ function Explorer(props: { scanner: Scanner }) {
                             backgroundColor: sizeColor(node().size),
                           }}
                         />
+                        <If
+                          when={marked().some((n) => n.path === node().path)}
+                        >
+                          <Icon
+                            icon={Check}
+                            size={12}
+                            class={iconTint(
+                              selection()?.path === node().path
+                                ? C.amber
+                                : C.text,
+                            )}
+                          />
+                        </If>
+                        <If when={node().directory}>
+                          <Icon
+                            icon={ChevronRight}
+                            size={12}
+                            class={iconTint(C.muted)}
+                          />
+                        </If>
                         <Text
                           style={{
                             numberOfLines: 1,
@@ -1578,10 +1599,6 @@ function Explorer(props: { scanner: Scanner }) {
                                 : C.text,
                           }}
                         >
-                          {marked().some((n) => n.path === node().path)
-                            ? "✓ "
-                            : ""}
-                          {node().directory ? "▸ " : ""}
                           {node().name}
                         </Text>
                         <Text
@@ -1635,7 +1652,8 @@ function Explorer(props: { scanner: Scanner }) {
                 {formatSize(marked().reduce((sum, n) => sum + n.size, 0))}
               </Text>
               <Button
-                label="Review marked items →"
+                label="Review marked items"
+                trailing={ArrowRight}
                 action={() => beginReview("trash")}
                 disabled={busy() || browseBusy()}
                 active

@@ -742,9 +742,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-core"
-version = "0.6.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b45a8b194c6879bcb26c6e430b804e49e97ec0fea5fad8c78d7710fd41f74a6"
+checksum = "cb2176bb7caf0a6bb0744e837a993fe010bb1117a4292a10712c8aeb46251250"
 dependencies = [
  "cap-std",
  "chrono",
@@ -755,6 +755,7 @@ dependencies = [
  "log",
  "nsh-macros",
  "ordered-float",
+ "percent-encoding",
  "rust-i18n",
  "rustc-hash",
  "serde",
@@ -773,9 +774,9 @@ dependencies = [
 
 [[package]]
 name = "nsh-macros"
-version = "0.6.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f1b3ce01247cac072395d42177725e7972de498eb148d37443196d870cdaf2b"
+checksum = "11d47cf2e51019c6755275925aa2258e9708302383ad0fda611eed643a6d0f8a"
 dependencies = [
  "imagesize",
  "proc-macro2",
@@ -1194,9 +1195,9 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.15.1"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31f7bd2d97198df05186f93a3a3c306845f40e8b3c22bf9279cdd7e5cf5fea7d"
+checksum = "cae92eb1b204bfd239b5c463e1bd2c3ce4913d2d3abfb5c64f5cfee9d65e5c68"
 dependencies = [
  "serde",
  "slotmap",

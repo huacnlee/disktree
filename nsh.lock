@@ -6,6 +6,28 @@
       "version": "0.1.0",
       "path": "ext/disktree-native",
       "module": "disktree-native"
+    },
+    {
+      "name": "nsh-icon",
+      "version": "0.2.2",
+      "source": "crates.io",
+      "checksum": "sha256-638773b01e553407287797cc85f42a697ae9f86e5189746a784d18c5eaab37ac",
+      "dir": "nsh-icon/0.2.2",
+      "module": "nsh-icon"
+    },
+    {
+      "name": "nsh-icon-tabler",
+      "version": "0.2.2",
+      "source": "crates.io",
+      "checksum": "sha256-da5cd0fd9f4d6e61ef404131a0aa2ff495ac15b07bad197006f9234ffbb72773",
+      "dir": "nsh-icon-tabler/0.2.2",
+      "module": "nsh-icon-tabler/native",
+      "exports": {
+        "nsh-icon-tabler": "tsx/index.ts"
+      },
+      "dependencies": [
+        "nsh-icon"
+      ]
     }
   ]
 }

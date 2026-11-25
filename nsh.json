@@ -10,6 +10,8 @@
   "dependencies": {
     "disktree-native": {
       "path": "ext/disktree-native"
-    }
+    },
+    "nsh-icon": "^0.2.2",
+    "nsh-icon-tabler": "^0.2.2"
   }
 }
